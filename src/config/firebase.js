@@ -1,13 +1,15 @@
 const admin = require("firebase-admin");
 const env = require("./env");
 
-if (!env.firebaseProjectId || !env.firebaseClientEmail || !env.firebasePrivateKey) {
-  throw new Error(
-    "Firebase credentials are required: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY"
-  );
-}
+function initializeFirebase() {
+  if (admin.apps.length) return;
 
-if (!admin.apps.length) {
+  if (!env.firebaseProjectId || !env.firebaseClientEmail || !env.firebasePrivateKey) {
+    throw new Error(
+      "Firebase credentials are required: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY"
+    );
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert({
       projectId: env.firebaseProjectId,
@@ -17,4 +19,9 @@ if (!admin.apps.length) {
   });
 }
 
-module.exports = admin;
+function getAdmin() {
+  initializeFirebase();
+  return admin;
+}
+
+module.exports = { initializeFirebase, getAdmin };
