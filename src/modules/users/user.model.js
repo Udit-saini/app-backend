@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, default: "" },
     name: { type: String, default: "" },
     isProfileCompleted: { type: Boolean, default: false },
+    fcmToken: { type: String, default: "" },
   },
   { timestamps: true }
 );

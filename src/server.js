@@ -1,7 +1,10 @@
+const http = require("http");
+const { Server } = require("socket.io");
 const app = require("./app");
 const connectDB = require("./config/db");
 const env = require("./config/env");
 const { initializeFirebase } = require("./config/firebase");
+const initChatSocket = require("./modules/chats/chat.socket");
 
 const startServer = async () => {
   try {
@@ -12,7 +15,18 @@ const startServer = async () => {
     initializeFirebase();
     await connectDB();
 
-    app.listen(env.port, () => {
+    const httpServer = http.createServer(app);
+    const io = new Server(httpServer, {
+      cors: {
+        origin: "*",
+        methods: ["GET", "POST"],
+      },
+    });
+
+    app.set("io", io);
+    initChatSocket(io);
+
+    httpServer.listen(env.port, () => {
       process.stdout.write(`Server running on port ${env.port}\n`);
     });
   } catch (error) {
