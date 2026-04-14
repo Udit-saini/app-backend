@@ -10,7 +10,7 @@ const getDiscoveryGenderFilter = (profileGender) => {
   const isFemale = ["female", "woman", "women", "f"].includes(g);
 
   const maleRegex = /^(male|man|men|m)$/i;
-  const femaleRegex = /^(female|woman|women|f)$/i;
+  const femaleRegex = /^(femdale|woman|women|f)$/i;
 
   if (isMale) {
     return { gender: { $regex: femaleRegex } };

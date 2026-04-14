@@ -5,6 +5,17 @@ const Profile = require("../profiles/profile.model");
 const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { ensureConversationForMatch } = require("../chats/chat.service");
 
+const sendError = (res, next, err) => {
+  if (typeof next === "function") {
+    return next(err);
+  }
+  const status = err.statusCode && err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 500;
+  return res.status(status).json({
+    success: false,
+    message: err.message || "Internal Server Error",
+  });
+};
+
 const findExistingMatch = async (userA, userB) => {
   return Match.findOne({
     isActive: true,
@@ -20,49 +31,55 @@ const recordAction = async (req, res, next) => {
     const currentUserId = req.user._id;
 
     if (!targetUserId || !action) {
-      const err = new Error("targetUserId and action are required");
-      err.statusCode = 400;
-      return next(err);
+      return res.status(400).json({
+        success: false,
+        message: "targetUserId and action are required",
+      });
     }
 
     if (!["like", "dislike"].includes(action)) {
-      const err = new Error('action must be "like" or "dislike"');
-      err.statusCode = 400;
-      return next(err);
+      return res.status(400).json({
+        success: false,
+        message: 'action must be "like" or "dislike"',
+      });
     }
 
     if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
-      const err = new Error("Invalid targetUserId");
-      err.statusCode = 400;
-      return next(err);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid targetUserId",
+      });
     }
 
     const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
 
     if (String(targetObjectId) === String(currentUserId)) {
-      const err = new Error("You cannot swipe on yourself");
-      err.statusCode = 400;
-      return next(err);
+      return res.status(400).json({
+        success: false,
+        message: "You cannot swipe on yourself",
+      });
     }
 
-    const duplicate = await Like.findOne({
+    const existingLike = await Like.findOne({
       fromUserId: currentUserId,
       toUserId: targetObjectId,
     })
-      .select("_id")
+      .select("_id action")
       .lean();
 
-    if (duplicate) {
-      const err = new Error("You have already swiped on this user");
-      err.statusCode = 400;
-      return next(err);
+    if (!existingLike) {
+      await Like.create({
+        fromUserId: currentUserId,
+        toUserId: targetObjectId,
+        action,
+      });
+    } else if (existingLike.action !== action) {
+      // Allow changing an existing swipe (e.g. dislike -> like) and make the API idempotent.
+      await Like.updateOne(
+        { _id: existingLike._id },
+        { $set: { action } }
+      );
     }
-
-    await Like.create({
-      fromUserId: currentUserId,
-      toUserId: targetObjectId,
-      action,
-    });
 
     if (action === "dislike") {
       return res.status(200).json({ success: true, matched: false });
@@ -112,10 +129,10 @@ const recordAction = async (req, res, next) => {
         if (recovered) {
           newMatch = { _id: recovered._id };
         } else {
-          return next(createErr);
+          return sendError(res, next, createErr);
         }
       } else {
-        return next(createErr);
+        return sendError(res, next, createErr);
       }
     }
 
@@ -138,9 +155,9 @@ const recordAction = async (req, res, next) => {
     if (error.code === 11000) {
       const dup = new Error("You have already swiped on this user");
       dup.statusCode = 400;
-      return next(dup);
+      return sendError(res, next, dup);
     }
-    return next(error);
+    return sendError(res, next, error);
   }
 };
 
@@ -178,7 +195,7 @@ const getReceivedLikes = async (req, res, next) => {
 
     return res.status(200).json({ success: true, data });
   } catch (error) {
-    return next(error);
+    return sendError(res, next, error);
   }
 };
 

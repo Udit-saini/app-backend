@@ -21,12 +21,11 @@ const matchSchema = new mongoose.Schema(
 
 matchSchema.index({ users: 1 });
 
-matchSchema.pre("validate", function setPairKey(next) {
+matchSchema.pre("validate", function setPairKey() {
   if (this.users && this.users.length === 2) {
     const sorted = [...this.users].map((id) => String(id)).sort();
     this.pairKey = sorted.join(":");
   }
-  next();
 });
 
 module.exports = mongoose.model("Match", matchSchema);
