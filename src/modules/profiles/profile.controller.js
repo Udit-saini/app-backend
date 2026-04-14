@@ -21,6 +21,24 @@ const buildProfileUpdatePayload = (body) => {
   return updates;
 };
 
+const getProfile = async (req, res, next) => {
+  try {
+    const profile = await Profile.findOne({ userId: req.user._id });
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        message: "Profile not found. Create a profile first.",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: profile,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const createProfile = async (req, res, next) => {
   try {
     const existingProfile = await Profile.findOne({ userId: req.user._id });
@@ -85,6 +103,7 @@ const updateProfile = async (req, res, next) => {
 };
 
 module.exports = {
+  getProfile,
   createProfile,
   updateProfile,
 };
