@@ -3,7 +3,6 @@ const Profile = require("../profiles/profile.model");
 const Like = require("../likes/like.model");
 const Match = require("../matches/match.model");
 const { getDiscoveryGenderFilter } = require("../../utils/genderPreference");
-const { getPrimaryImageUrl } = require("../../utils/profileImage");
 
 const DUMMY_DISTANCE_KM = 5;
 
@@ -52,17 +51,11 @@ const getFeed = async (req, res, next) => {
       userId: { $nin: excludeObjectIds },
       ...genderFilter,
     })
-      .select("userId name age bio interests images")
       .limit(20)
       .lean();
 
     const data = candidates.map((p) => ({
-      userId: p.userId,
-      name: p.name,
-      age: p.age,
-      bio: p.bio,
-      interests: p.interests,
-      image: getPrimaryImageUrl(p.images),
+      ...p,
       distanceKm: DUMMY_DISTANCE_KM,
     }));
 
