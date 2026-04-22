@@ -179,15 +179,20 @@ const getReceivedLikes = async (req, res, next) => {
     const fromIds = likes.map((l) => l.fromUserId);
 
     const profiles = await Profile.find({ userId: { $in: fromIds } })
-      .select("userId name images")
+      .populate({
+        path: "userId",
+        select: "firebaseUid email name isProfileCompleted",
+      })
       .lean();
 
-    const byUserId = new Map(profiles.map((p) => [String(p.userId), p]));
+    const byUserId = new Map(profiles.map((p) => [String(p.userId?._id || p.userId), p]));
 
     const data = likes.map((like) => {
       const p = byUserId.get(String(like.fromUserId));
       return {
         userId: like.fromUserId,
+        user: p?.userId || null,
+        profile: p || null,
         name: p?.name || "",
         image: getPrimaryImageUrl(p?.images),
       };

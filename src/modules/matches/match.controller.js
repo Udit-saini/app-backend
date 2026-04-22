@@ -27,10 +27,13 @@ const listMatches = async (req, res, next) => {
     });
 
     const profiles = await Profile.find({ userId: { $in: otherUserIds } })
-      .select("userId name images")
+      .populate({
+        path: "userId",
+        select: "firebaseUid email name isProfileCompleted",
+      })
       .lean();
 
-    const profileByUserId = new Map(profiles.map((p) => [String(p.userId), p]));
+    const profileByUserId = new Map(profiles.map((p) => [String(p.userId?._id || p.userId), p]));
 
     const data = matches.map((m) => {
       const otherUserId = m.users.find((uid) => String(uid) !== String(currentUserId));
@@ -38,7 +41,10 @@ const listMatches = async (req, res, next) => {
 
       return {
         matchId: m._id,
-        user: {
+        userId: otherUserId,
+        user: p?.userId || null,
+        profile: p || null,
+        preview: {
           userId: otherUserId,
           name: p?.name || "",
           image: getPrimaryImageUrl(p?.images),
