@@ -3,7 +3,6 @@ const Conversation = require("./conversation.model");
 const Message = require("./message.model");
 const Profile = require("../profiles/profile.model");
 const User = require("../users/user.model");
-const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { sendMessage: persistAndBroadcastMessage } = require("./chat.service");
 
 const getConversations = async (req, res, next) => {
@@ -22,9 +21,7 @@ const getConversations = async (req, res, next) => {
       c.participants.find((p) => String(p) !== String(currentUserId))
     );
 
-    const profiles = await Profile.find({ userId: { $in: otherUserIds } })
-      .select("userId name images")
-      .lean();
+    const profiles = await Profile.find({ userId: { $in: otherUserIds } }).lean();
 
     const profileByUserId = new Map(profiles.map((p) => [String(p.userId), p]));
 
@@ -38,11 +35,7 @@ const getConversations = async (req, res, next) => {
         lastMessage: c.lastMessage,
         lastMessageAt: c.lastMessageAt,
         lastMessageSenderId: c.lastMessageSenderId,
-        otherUser: {
-          userId: otherId,
-          name: p?.name || "",
-          image: getPrimaryImageUrl(p?.images),
-        },
+        otherUserProfile: p || null,
       };
     });
 
