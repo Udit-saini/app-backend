@@ -2,8 +2,10 @@ const mongoose = require("mongoose");
 const Like = require("./like.model");
 const Match = require("../matches/match.model");
 const Profile = require("../profiles/profile.model");
+const User = require("../users/user.model");
 const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { ensureConversationForMatch } = require("../chats/chat.service");
+const { sendPushNotification } = require("../notifications/notification.service");
 
 const sendError = (res, next, err) => {
   if (typeof next === "function") {
@@ -23,6 +25,42 @@ const findExistingMatch = async (userA, userB) => {
   })
     .select("_id")
     .lean();
+};
+
+const sendMatchNotifications = async ({ userAId, userBId, matchId }) => {
+  const [users, profiles] = await Promise.all([
+    User.find({ _id: { $in: [userAId, userBId] } }).select("_id fcmToken").lean(),
+    Profile.find({ userId: { $in: [userAId, userBId] } }).select("userId name").lean(),
+  ]);
+
+  const userById = new Map(users.map((user) => [String(user._id), user]));
+  const profileByUserId = new Map(profiles.map((profile) => [String(profile.userId), profile]));
+
+  const userAIdStr = String(userAId);
+  const userBIdStr = String(userBId);
+  const userAName = profileByUserId.get(userAIdStr)?.name || "Someone";
+  const userBName = profileByUserId.get(userBIdStr)?.name || "Someone";
+
+  await Promise.all([
+    sendPushNotification({
+      token: userById.get(userAIdStr)?.fcmToken,
+      title: "It's a Match 🎉",
+      body: `You matched with ${userBName}`,
+      data: {
+        type: "match",
+        matchId: String(matchId),
+      },
+    }),
+    sendPushNotification({
+      token: userById.get(userBIdStr)?.fcmToken,
+      title: "It's a Match 🎉",
+      body: `You matched with ${userAName}`,
+      data: {
+        type: "match",
+        matchId: String(matchId),
+      },
+    }),
+  ]);
 };
 
 const recordAction = async (req, res, next) => {
@@ -117,12 +155,14 @@ const recordAction = async (req, res, next) => {
     }
 
     let newMatch;
+    let isNewMatchCreated = false;
     try {
       newMatch = await Match.create({
         users: [currentUserId, targetObjectId],
         matchedAt: new Date(),
         isActive: true,
       });
+      isNewMatchCreated = true;
     } catch (createErr) {
       if (createErr.code === 11000) {
         const recovered = await findExistingMatch(currentUserId, targetObjectId);
@@ -137,6 +177,14 @@ const recordAction = async (req, res, next) => {
     }
 
     await ensureConversationForMatch(newMatch._id);
+
+    if (isNewMatchCreated) {
+      await sendMatchNotifications({
+        userAId: currentUserId,
+        userBId: targetObjectId,
+        matchId: newMatch._id,
+      });
+    }
 
     const targetProfile = await Profile.findOne({ userId: targetObjectId })
       .select("name images")

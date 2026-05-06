@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 const Conversation = require("./conversation.model");
 const Message = require("./message.model");
 const Match = require("../matches/match.model");
-const { sendPushNotification } = require("../../notifications/notification.service");
+const User = require("../users/user.model");
+const { sendPushNotification } = require("../notifications/notification.service");
 
 const ensureConversationForMatch = async (matchId) => {
   if (!mongoose.Types.ObjectId.isValid(matchId)) {
@@ -97,15 +98,22 @@ const sendMessage = async ({ conversationId, senderId, text, io }) => {
   }
 
   const otherId = conversation.participants.find((p) => String(p) !== senderStr);
-  if (otherId) {
-    try {
-      await sendPushNotification(otherId, "You received a new message", trimmed, {
+  if (otherId && String(otherId) !== senderStr) {
+    const [senderUser, receiverUser] = await Promise.all([
+      User.findById(senderId).select("name").lean(),
+      User.findById(otherId).select("fcmToken").lean(),
+    ]);
+
+    await sendPushNotification({
+      token: receiverUser?.fcmToken,
+      title: "New Message 💬",
+      body: `${senderUser?.name || "Someone"} sent you a message`,
+      data: {
+        type: "message",
         conversationId: convIdStr,
-        type: "chat_message",
-      });
-    } catch (pushErr) {
-      process.stderr.write(`FCM send failed: ${pushErr.message}\n`);
-    }
+        senderId: senderStr,
+      },
+    });
   }
 
   return { message: payload };

@@ -87,6 +87,10 @@ const getMessages = async (req, res, next) => {
 
 const postSendMessage = async (req, res, next) => {
   try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
     const { conversationId, text } = req.body || {};
     const io = req.app.get("io");
 
@@ -108,6 +112,10 @@ const postSendMessage = async (req, res, next) => {
 
 const registerFcmToken = async (req, res, next) => {
   try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
     const { fcmToken } = req.body || {};
     if (typeof fcmToken !== "string" || !fcmToken.trim()) {
       return res.status(400).json({
