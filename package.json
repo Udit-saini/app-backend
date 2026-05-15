@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "seed:subscriptions": "node src/seed/subscriptionUsers.seed.js",
     "test": "echo \"No tests configured\""
   },
   "keywords": [],

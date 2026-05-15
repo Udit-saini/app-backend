@@ -6,6 +6,7 @@ const User = require("../users/user.model");
 const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { ensureConversationForMatch } = require("../chats/chat.service");
 const { sendPushNotification } = require("../notifications/notification.service");
+const { consumeSwipeIfAllowed } = require("../subscriptions/subscription.service");
 
 const sendError = (res, next, err) => {
   if (typeof next === "function") {
@@ -106,6 +107,15 @@ const recordAction = async (req, res, next) => {
       .lean();
 
     if (!existingLike) {
+      const swipeAccess = await consumeSwipeIfAllowed(req.user);
+
+      if (!swipeAccess.allowed) {
+        return res.status(403).json({
+          success: false,
+          message: "Daily swipe limit reached",
+        });
+      }
+
       await Like.create({
         fromUserId: currentUserId,
         toUserId: targetObjectId,
