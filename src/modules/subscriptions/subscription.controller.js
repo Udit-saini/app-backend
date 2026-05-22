@@ -77,8 +77,31 @@ const cancelSubscription = async (req, res, next) => {
   }
 };
 
+const setUserSubscriptionByAdmin = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { plan, productId, expiryDate, autoRenewing } = req.body || {};
+
+    const result = await subscriptionService.setUserSubscriptionByAdmin({
+      userId,
+      plan,
+      productId,
+      expiryDate,
+      autoRenewing,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   cancelSubscription,
   getMySubscription,
+  setUserSubscriptionByAdmin,
   verifySubscription,
 };

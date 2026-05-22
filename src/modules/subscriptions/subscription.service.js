@@ -1,4 +1,5 @@
 const User = require("../users/user.model");
+const mongoose = require("mongoose");
 
 const FREE_DAILY_SWIPE_LIMIT = 10;
 
@@ -181,6 +182,78 @@ const cancelSubscriptionLocally = async (userId) => {
   return sanitizeSubscription(user.subscription);
 };
 
+const setUserSubscriptionByAdmin = async ({
+  userId,
+  plan,
+  productId,
+  expiryDate,
+  autoRenewing,
+}) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    const error = new Error("Invalid userId");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!["free", "premium"].includes(plan)) {
+    const error = new Error('plan must be "free" or "premium"');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const now = new Date();
+  const update = {};
+
+  if (plan === "premium") {
+    const premiumExpiryDate = expiryDate ? new Date(expiryDate) : new Date(now);
+
+    if (!expiryDate) {
+      premiumExpiryDate.setMonth(premiumExpiryDate.getMonth() + 1);
+    }
+
+    if (Number.isNaN(premiumExpiryDate.getTime()) || premiumExpiryDate.getTime() <= Date.now()) {
+      const error = new Error("expiryDate must be a valid future date for premium plan");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    update.$set = {
+      "subscription.plan": "premium",
+      "subscription.status": "active",
+      "subscription.productId": productId || "admin_premium",
+      "subscription.purchaseToken": "admin_grant",
+      "subscription.platform": "android",
+      "subscription.startDate": now,
+      "subscription.expiryDate": premiumExpiryDate,
+      "subscription.autoRenewing": Boolean(autoRenewing),
+    };
+  } else {
+    update.$set = {
+      "subscription.plan": "free",
+      "subscription.status": "cancelled",
+      "subscription.productId": null,
+      "subscription.purchaseToken": null,
+      "subscription.platform": "android",
+      "subscription.startDate": null,
+      "subscription.expiryDate": null,
+      "subscription.autoRenewing": false,
+    };
+  }
+
+  const user = await User.findByIdAndUpdate(userId, update, { new: true });
+
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    userId: user._id,
+    subscription: sanitizeSubscription(user.subscription),
+  };
+};
+
 const hasActivePremium = async (user) => {
   const freshUser = await ensureFreshSubscriptionStatus(user);
   return isSubscriptionCurrentlyActive(freshUser?.subscription);
@@ -236,6 +309,7 @@ module.exports = {
   getCurrentSubscription,
   hasActivePremium,
   isSubscriptionCurrentlyActive,
+  setUserSubscriptionByAdmin,
   verifyAndActivateSubscription,
   verifyGooglePlaySubscription,
 };

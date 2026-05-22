@@ -10,6 +10,7 @@ const env = {
   firebasePrivateKey: process.env.FIREBASE_PRIVATE_KEY
     ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
     : "",
+  adminApiKey: process.env.ADMIN_API_KEY || "",
 };
 
 module.exports = env;

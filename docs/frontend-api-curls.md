@@ -9,6 +9,7 @@ Replace these values before running curl commands:
 ```bash
 BASE_URL="http://localhost:5000"
 TOKEN="FIREBASE_ID_TOKEN"
+ADMIN_API_KEY="YOUR_ADMIN_API_KEY"
 TARGET_USER_ID="MONGO_USER_ID"
 MATCH_ID="MONGO_MATCH_ID"
 CONVERSATION_ID="MONGO_CONVERSATION_ID"
@@ -448,6 +449,202 @@ Use: Mark subscription as cancelled locally. This does not call Google cancel AP
 ```bash
 curl -X POST "$BASE_URL/api/subscription/cancel" \
   -H "Authorization: Bearer $TOKEN"
+```
+
+### PATCH `/api/subscription/admin/users/:userId`
+
+Use: Admin API to manually set any user subscription to `premium` or `free`.
+
+This API does not use Firebase auth. It requires the backend env variable `ADMIN_API_KEY`, and the same value must be sent in the `X-Admin-Api-Key` header.
+
+Set user as premium:
+
+```bash
+curl -X PATCH "$BASE_URL/api/subscription/admin/users/$TARGET_USER_ID" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "premium",
+    "productId": "admin_premium",
+    "expiryDate": "2026-12-31T23:59:59.000Z",
+    "autoRenewing": false
+  }'
+```
+
+Set user as free:
+
+```bash
+curl -X PATCH "$BASE_URL/api/subscription/admin/users/$TARGET_USER_ID" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan": "free"
+  }'
+```
+
+Success response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "userId": "...",
+    "subscription": {
+      "plan": "premium",
+      "status": "active",
+      "productId": "admin_premium",
+      "platform": "android",
+      "startDate": "2026-05-22T00:00:00.000Z",
+      "expiryDate": "2026-12-31T23:59:59.000Z",
+      "autoRenewing": false
+    }
+  }
+}
+```
+
+## Admin User APIs
+
+All admin user APIs require:
+
+```http
+X-Admin-Api-Key: YOUR_ADMIN_API_KEY
+```
+
+These APIs are for the admin panel and do not use Firebase user auth.
+
+### GET `/api/users`
+
+Use: List users for admin panel.
+
+Query params:
+
+```text
+gender
+plan
+search
+page
+limit
+```
+
+Example:
+
+```bash
+curl -X GET "$BASE_URL/api/users?gender=female&plan=premium&search=priya&page=1&limit=20" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": [],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 0,
+    "totalPages": 0
+  }
+}
+```
+
+### GET `/api/users/:id`
+
+Use: Get one user with profile details.
+
+```bash
+curl -X GET "$BASE_URL/api/users/$TARGET_USER_ID" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
+```
+
+### POST `/api/users`
+
+Use: Create a user from admin panel. `firebaseUid` is required because Firebase Auth is the login identity for app users.
+
+```bash
+curl -X POST "$BASE_URL/api/users" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "firebaseUid": "admin-created-user-001",
+    "email": "new-user@example.com",
+    "name": "New User",
+    "subscription": {
+      "plan": "free",
+      "status": "active"
+    },
+    "profile": {
+      "name": "New User",
+      "gender": "female",
+      "age": 25,
+      "bio": "Created from admin panel",
+      "lookingFor": "long-term relationship",
+      "zodiac": "Virgo",
+      "height": 165,
+      "religion": "Hindu",
+      "interests": ["music", "travel"],
+      "location": {
+        "lat": 28.6139,
+        "lng": 77.2090
+      }
+    }
+  }'
+```
+
+### PUT `/api/users/:id`
+
+Use: Update user and optional profile details.
+
+```bash
+curl -X PUT "$BASE_URL/api/users/$TARGET_USER_ID" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "updated@example.com",
+    "name": "Updated Name",
+    "subscription": {
+      "plan": "premium",
+      "status": "active",
+      "productId": "admin_premium",
+      "platform": "android",
+      "startDate": "2026-05-22T00:00:00.000Z",
+      "expiryDate": "2026-12-31T23:59:59.000Z",
+      "autoRenewing": false
+    },
+    "profile": {
+      "bio": "Updated by admin",
+      "lookingFor": "marriage",
+      "zodiac": "Leo",
+      "height": 170,
+      "religion": "Christian"
+    }
+  }'
+```
+
+### DELETE `/api/users/:id`
+
+Use: Delete user and related profile, likes, matches, conversations, and messages.
+
+```bash
+curl -X DELETE "$BASE_URL/api/users/$TARGET_USER_ID" \
+  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
+```
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "User deleted successfully",
+  "data": {
+    "deletedUser": true,
+    "deletedProfile": 1,
+    "deletedLikes": 2,
+    "deletedMatches": 1,
+    "deletedConversations": 1,
+    "deletedMessages": 10
+  }
+}
 ```
 
 ## Socket.IO Chat
