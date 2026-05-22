@@ -13,6 +13,10 @@ const profileSchema = new mongoose.Schema(
     gender: { type: String, required: true, trim: true },
     age: { type: Number, required: true, min: 18, max: 120 },
     bio: { type: String, default: "", trim: true },
+    lookingFor: { type: String, default: "", trim: true },
+    zodiac: { type: String, default: "", trim: true },
+    height: { type: Number, default: null, min: 1 },
+    religion: { type: String, default: "", trim: true },
     interests: { type: [String], default: [] },
     images: {
       type: [

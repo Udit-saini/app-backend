@@ -1,6 +1,6 @@
 const User = require("../users/user.model");
 
-const FREE_DAILY_SWIPE_LIMIT = 50;
+const FREE_DAILY_SWIPE_LIMIT = 10;
 
 const VALID_ANDROID_PRODUCTS = new Set([
   "premium_monthly",

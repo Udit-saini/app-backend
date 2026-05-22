@@ -6,7 +6,10 @@ const User = require("../users/user.model");
 const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { ensureConversationForMatch } = require("../chats/chat.service");
 const { sendPushNotification } = require("../notifications/notification.service");
-const { consumeSwipeIfAllowed } = require("../subscriptions/subscription.service");
+const {
+  consumeSwipeIfAllowed,
+  hasActivePremium,
+} = require("../subscriptions/subscription.service");
 
 const sendError = (res, next, err) => {
   if (typeof next === "function") {
@@ -230,8 +233,15 @@ const getReceivedLikes = async (req, res, next) => {
       .select("fromUserId")
       .lean();
 
+    const isPremium = await hasActivePremium(req.user);
+
     if (likes.length === 0) {
-      return res.status(200).json({ success: true, data: [] });
+      return res.status(200).json({
+        success: true,
+        isPremium,
+        shouldBlur: !isPremium,
+        data: [],
+      });
     }
 
     const fromIds = likes.map((l) => l.fromUserId);
@@ -247,16 +257,31 @@ const getReceivedLikes = async (req, res, next) => {
 
     const data = likes.map((like) => {
       const p = byUserId.get(String(like.fromUserId));
-      return {
+      const basicCard = {
         userId: like.fromUserId,
-        user: p?.userId || null,
-        profile: p || null,
         name: p?.name || "",
         image: getPrimaryImageUrl(p?.images),
+        isPremium,
+        shouldBlur: !isPremium,
+      };
+
+      if (!isPremium) {
+        return basicCard;
+      }
+
+      return {
+        ...basicCard,
+        user: p?.userId || null,
+        profile: p || null,
       };
     });
 
-    return res.status(200).json({ success: true, data });
+    return res.status(200).json({
+      success: true,
+      isPremium,
+      shouldBlur: !isPremium,
+      data,
+    });
   } catch (error) {
     return sendError(res, next, error);
   }

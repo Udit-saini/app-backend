@@ -93,6 +93,10 @@ curl -X POST "$BASE_URL/api/profile" \
     "gender": "male",
     "age": 26,
     "bio": "Coffee, travel, and good playlists.",
+    "lookingFor": "long-term relationship",
+    "zodiac": "Leo",
+    "height": 178,
+    "religion": "Hindu",
     "interests": ["music", "travel", "fitness"],
     "location": {
       "lat": 28.6139,
@@ -103,7 +107,7 @@ curl -X POST "$BASE_URL/api/profile" \
 
 ### PATCH `/api/profile`
 
-Use: Update current user's profile. Only these fields are accepted: `name`, `gender`, `age`, `bio`, `interests`, `images`, `location`.
+Use: Update current user's profile. Only these fields are accepted: `name`, `gender`, `age`, `bio`, `lookingFor`, `zodiac`, `height`, `religion`, `interests`, `images`, `location`.
 
 ```bash
 curl -X PATCH "$BASE_URL/api/profile" \
@@ -111,6 +115,10 @@ curl -X PATCH "$BASE_URL/api/profile" \
   -H "Content-Type: application/json" \
   -d '{
     "bio": "Updated bio",
+    "lookingFor": "marriage",
+    "zodiac": "Aries",
+    "height": 172,
+    "religion": "Christian",
     "interests": ["movies", "food", "travel"]
   }'
 ```
@@ -168,9 +176,9 @@ Success response includes `swipeLimit`:
   "data": [],
   "swipeLimit": {
     "unlimited": false,
-    "dailyLimit": 50,
-    "usedToday": 12,
-    "remainingToday": 38
+    "dailyLimit": 10,
+    "usedToday": 2,
+    "remainingToday": 8
   }
 }
 ```
@@ -192,7 +200,7 @@ Premium users receive:
 
 Use: Like or dislike another user. This is the swipe endpoint.
 
-Free users are limited to 50 new swipes per UTC day. Premium users have unlimited swipes.
+Free users are limited to 10 new swipes per UTC day. Premium users have unlimited swipes.
 
 ```bash
 curl -X POST "$BASE_URL/api/likes/action" \
@@ -252,11 +260,51 @@ Free limit error:
 
 Use: Show users who liked the current user.
 
-Premium only. Free users receive `403`.
+Premium users receive full liker details. Free users receive basic details with `shouldBlur: true` so frontend can show blurred like cards.
 
 ```bash
 curl -X GET "$BASE_URL/api/likes/received" \
   -H "Authorization: Bearer $TOKEN"
+```
+
+Free-user response example:
+
+```json
+{
+  "success": true,
+  "isPremium": false,
+  "shouldBlur": true,
+  "data": [
+    {
+      "userId": "...",
+      "name": "Priya",
+      "image": "https://...",
+      "isPremium": false,
+      "shouldBlur": true
+    }
+  ]
+}
+```
+
+Premium-user response example:
+
+```json
+{
+  "success": true,
+  "isPremium": true,
+  "shouldBlur": false,
+  "data": [
+    {
+      "userId": "...",
+      "name": "Priya",
+      "image": "https://...",
+      "isPremium": true,
+      "shouldBlur": false,
+      "user": {},
+      "profile": {}
+    }
+  ]
+}
 ```
 
 ## Matches
@@ -529,6 +577,7 @@ or:
 - Use `/api/auth/login` after Firebase login to bootstrap the MongoDB user.
 - Use `/api/subscription/me` after app start/login to decide whether to show premium UI.
 - Use `/api/subscription/verify` after Google Play purchase completes. Do not trust frontend purchase state by itself.
-- Free users can perform 50 new swipes per UTC day.
-- Premium users can swipe without limit and can access `/api/likes/received`.
+- Free users can perform 10 new swipes per UTC day.
+- Premium users can swipe without limit and receive full details from `/api/likes/received`.
+- Free users can call `/api/likes/received`, but should blur cards when `shouldBlur` is `true`.
 - For chat, load conversations by REST, join a conversation room by Socket.IO, then listen for `new_message`.

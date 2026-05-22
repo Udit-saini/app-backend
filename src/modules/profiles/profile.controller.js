@@ -7,6 +7,10 @@ const UPDATABLE_PROFILE_FIELDS = [
   "gender",
   "age",
   "bio",
+  "lookingFor",
+  "zodiac",
+  "height",
+  "religion",
   "interests",
   "images",
   "location",
@@ -14,6 +18,13 @@ const UPDATABLE_PROFILE_FIELDS = [
 
 const buildProfileUpdatePayload = (body) => {
   const updates = {};
+  if (
+    Object.prototype.hasOwnProperty.call(body, "zoidic") &&
+    !Object.prototype.hasOwnProperty.call(body, "zodiac")
+  ) {
+    updates.zodiac = body.zoidic;
+  }
+
   for (const key of UPDATABLE_PROFILE_FIELDS) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       updates[key] = body[key];
@@ -52,6 +63,7 @@ const createProfile = async (req, res, next) => {
 
     const profile = await Profile.create({
       ...req.body,
+      zodiac: req.body?.zodiac || req.body?.zoidic || "",
       userId: req.user._id,
     });
 
