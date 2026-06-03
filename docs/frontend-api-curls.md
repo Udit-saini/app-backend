@@ -1,780 +1,428 @@
-# Dating App Backend API Handoff
+using System;
+using System.Activities;
+using System.Collections.Generic;
+using Microsoft.Xrm.Sdk;
+using Microsoft.Xrm.Sdk.Query;
+using Microsoft.Xrm.Sdk.Workflow;
 
-Use this document for frontend integration.
-
-## Base Setup
-
-Replace these values before running curl commands:
-
-```bash
-BASE_URL="http://localhost:5000"
-TOKEN="FIREBASE_ID_TOKEN"
-ADMIN_API_KEY="YOUR_ADMIN_API_KEY"
-TARGET_USER_ID="MONGO_USER_ID"
-MATCH_ID="MONGO_MATCH_ID"
-CONVERSATION_ID="MONGO_CONVERSATION_ID"
-PUBLIC_ID="CLOUDINARY_PUBLIC_ID"
-```
-
-All protected APIs require:
-
-```http
-Authorization: Bearer FIREBASE_ID_TOKEN
-```
-
-The backend verifies the Firebase ID token. If the user does not exist yet, the auth middleware creates the user from Firebase claims.
-
-## Health
-
-### GET `/health`
-
-Use: Check whether the API server is running.
-
-```bash
-curl -X GET "$BASE_URL/health"
-```
-
-Success response:
-
-```json
+namespace bulkimport
 {
-  "success": true
-}
-```
-
-## Auth
-
-### POST `/api/auth/login`
-
-Use: Login/bootstrap the authenticated user after Firebase login on frontend.
-
-```bash
-curl -X POST "$BASE_URL/api/auth/login" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Success response:
-
-```json
-{
-  "success": true,
-  "data": {
-    "user": {
-      "_id": "...",
-      "firebaseUid": "...",
-      "email": "...",
-      "name": "...",
-      "isProfileCompleted": false
-    }
-  }
-}
-```
-
-## Profile
-
-### GET `/api/profile`
-
-Use: Get current user's dating profile.
-
-```bash
-curl -X GET "$BASE_URL/api/profile" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### POST `/api/profile`
-
-Use: Create current user's dating profile.
-
-```bash
-curl -X POST "$BASE_URL/api/profile" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Aarav",
-    "gender": "male",
-    "age": 26,
-    "bio": "Coffee, travel, and good playlists.",
-    "lookingFor": "long-term relationship",
-    "zodiac": "Leo",
-    "height": 178,
-    "religion": "Hindu",
-    "interests": ["music", "travel", "fitness"],
-    "location": {
-      "lat": 28.6139,
-      "lng": 77.2090
-    }
-  }'
-```
-
-### PATCH `/api/profile`
-
-Use: Update current user's profile. Only these fields are accepted: `name`, `gender`, `age`, `bio`, `lookingFor`, `zodiac`, `height`, `religion`, `interests`, `images`, `location`.
-
-```bash
-curl -X PATCH "$BASE_URL/api/profile" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bio": "Updated bio",
-    "lookingFor": "marriage",
-    "zodiac": "Aries",
-    "height": 172,
-    "religion": "Christian",
-    "interests": ["movies", "food", "travel"]
-  }'
-```
-
-### POST `/api/profile/upload-photo`
-
-Use: Upload one profile photo. Maximum 6 photos per profile.
-
-```bash
-curl -X POST "$BASE_URL/api/profile/upload-photo" \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "image=@/absolute/path/to/photo.jpg"
-```
-
-### DELETE `/api/profile/photo/:publicId`
-
-Use: Delete one profile photo by Cloudinary `publicId`.
-
-```bash
-curl -X DELETE "$BASE_URL/api/profile/photo/$PUBLIC_ID" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-If `publicId` contains `/` or special characters, URL encode it on frontend.
-
-### PUT `/api/profile/photo/set-primary`
-
-Use: Set one uploaded photo as the primary profile photo.
-
-```bash
-curl -X PUT "$BASE_URL/api/profile/photo/set-primary" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "publicId": "profiles/example-photo-id"
-  }'
-```
-
-## Discovery
-
-### GET `/api/discovery/feed`
-
-Use: Get discovery cards for swiping. Excludes current user, already swiped users, and active matches.
-
-```bash
-curl -X GET "$BASE_URL/api/discovery/feed" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Success response includes `swipeLimit`:
-
-```json
-{
-  "success": true,
-  "data": [],
-  "swipeLimit": {
-    "unlimited": false,
-    "dailyLimit": 10,
-    "usedToday": 2,
-    "remainingToday": 8
-  }
-}
-```
-
-Premium users receive:
-
-```json
-{
-  "unlimited": true,
-  "dailyLimit": null,
-  "usedToday": null,
-  "remainingToday": null
-}
-```
-
-## Likes And Swipes
-
-### POST `/api/likes/action`
-
-Use: Like or dislike another user. This is the swipe endpoint.
-
-Free users are limited to 10 new swipes per UTC day. Premium users have unlimited swipes.
-
-```bash
-curl -X POST "$BASE_URL/api/likes/action" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "targetUserId": "'"$TARGET_USER_ID"'",
-    "action": "like"
-  }'
-```
-
-For dislike:
-
-```bash
-curl -X POST "$BASE_URL/api/likes/action" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "targetUserId": "'"$TARGET_USER_ID"'",
-    "action": "dislike"
-  }'
-```
-
-Success without match:
-
-```json
-{
-  "success": true,
-  "matched": false
-}
-```
-
-Success with match:
-
-```json
-{
-  "success": true,
-  "matched": true,
-  "matchId": "...",
-  "user": {
-    "name": "Priya",
-    "image": "https://..."
-  }
-}
-```
-
-Free limit error:
-
-```json
-{
-  "success": false,
-  "message": "Daily swipe limit reached"
-}
-```
-
-### GET `/api/likes/received`
-
-Use: Show users who liked the current user.
-
-Premium users receive full liker details. Free users receive basic details with `shouldBlur: true` so frontend can show blurred like cards.
-
-```bash
-curl -X GET "$BASE_URL/api/likes/received" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Free-user response example:
-
-```json
-{
-  "success": true,
-  "isPremium": false,
-  "shouldBlur": true,
-  "data": [
+    public sealed class BulkUsersImportActivity : CodeActivity
     {
-      "userId": "...",
-      "name": "Priya",
-      "image": "https://...",
-      "isPremium": false,
-      "shouldBlur": true
+        private const string BulkImportEntityName = "ia_bulkusersimport";
+        private const string OrganizationEntityName = "ia_organization";
+        private const string UserEntityName = "ia_user";
+        private const string MembershipEntityName = "ia_organizationmembership";
+        private const string OrganizationRoleEntityName = "ia_organizationrole";
+        private const int StatusValidating = 226660000;
+        private const int StatusProcessing = 226660001;
+        private const int StatusCompleted = 226660002;
+        private const int StatusFailed = 226660003;
+
+        [Input("Org Name")]
+        public InArgument<string> OrgName { get; set; }
+
+        [Input("User First Name")]
+        public InArgument<string> UserFirstName { get; set; }
+
+        [Input("User Last Name")]
+        public InArgument<string> UserLastName { get; set; }
+
+        [Input("User Phone")]
+        public InArgument<string> UserPhone { get; set; }
+
+        [Input("User Email")]
+        public InArgument<string> UserEmail { get; set; }
+
+        [Input("Location Name")]
+        public InArgument<string> LocationName { get; set; }
+
+        [Input("Org Role")]
+        public InArgument<string> OrgRole { get; set; }
+
+        protected override void Execute(CodeActivityContext executionContext)
+        {
+            ITracingService tracingService = executionContext.GetExtension<ITracingService>();
+            IWorkflowContext workflowContext = executionContext.GetExtension<IWorkflowContext>();
+            IOrganizationServiceFactory serviceFactory = executionContext.GetExtension<IOrganizationServiceFactory>();
+            IOrganizationService service = serviceFactory.CreateOrganizationService(workflowContext.UserId);
+
+            if (!string.Equals(workflowContext.PrimaryEntityName, BulkImportEntityName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidPluginExecutionException("This workflow activity must run against Bulk Users Import records.");
+            }
+
+            if (ShouldSkipTriggeredStatusUpdate(service, workflowContext))
+            {
+                tracingService.Trace(
+                    "Bulk user import skipped for {0} because the current status indicates an in-progress or completed system update.",
+                    workflowContext.PrimaryEntityId);
+                return;
+            }
+
+            BulkUserImportData importData = new BulkUserImportData
+            {
+                OrgName = OrgName.Get(executionContext),
+                UserFirstName = UserFirstName.Get(executionContext),
+                UserLastName = UserLastName.Get(executionContext),
+                UserPhone = UserPhone.Get(executionContext),
+                UserEmail = UserEmail.Get(executionContext),
+                LocationName = LocationName.Get(executionContext),
+                OrgRole = OrgRole.Get(executionContext)
+            };
+
+            try
+            {
+                SetImportStatus(service, workflowContext.PrimaryEntityId, StatusValidating);
+                bool wasProcessed = ProcessImportRecord(service, importData, workflowContext.PrimaryEntityId);
+                if (wasProcessed)
+                {
+                    SetImportCompleted(service, workflowContext.PrimaryEntityId);
+                }
+            }
+            catch (Exception ex)
+            {
+                tracingService.Trace("Bulk user import failed for {0}: {1}", workflowContext.PrimaryEntityId, ex);
+                SetImportError(service, workflowContext.PrimaryEntityId, GetErrorLogMessage(ex));
+            }
+        }
+
+        private static bool ProcessImportRecord(IOrganizationService service, BulkUserImportData importData, Guid importRecordId)
+        {
+            NormalizeImportData(importData);
+
+            ImportValidationResult validation = ValidateImportData(service, importData);
+            if (validation.Errors.Count > 0)
+            {
+                SetImportFailed(service, importRecordId, BuildValidationMessage(validation.Errors));
+                return false;
+            }
+
+            SetImportStatus(service, importRecordId, StatusProcessing);
+
+            Guid userId = validation.User == null ? CreateUser(service, importData) : validation.User.Id;
+
+            CreateOrganizationMembership(
+                service,
+                importData,
+                userId,
+                validation.LocationOrganization.Id,
+                validation.ParentOrganization.Id,
+                validation.OrganizationRole.Id);
+
+            return true;
+        }
+
+        private static ImportValidationResult ValidateImportData(IOrganizationService service, BulkUserImportData importData)
+        {
+            ImportValidationResult result = new ImportValidationResult();
+
+            if (string.IsNullOrWhiteSpace(importData.OrgName))
+            {
+                result.Errors.Add("Org Name is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(importData.UserEmail))
+            {
+                result.Errors.Add("User Email is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(importData.LocationName))
+            {
+                result.Errors.Add("Location Name is required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(importData.OrgRole))
+            {
+                result.Errors.Add("Org Role is required.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(importData.OrgName))
+            {
+                result.ParentOrganization = FindSingleByAnyText(
+                    service,
+                    OrganizationEntityName,
+                    importData.OrgName,
+                    new[] { "ia_orgname", "ia_code" },
+                    "ia_organizationid");
+
+                if (result.ParentOrganization == null)
+                {
+                    result.Errors.Add($"Parent Organization '{importData.OrgName}' does not exist by name or code.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(importData.LocationName))
+            {
+                result.LocationOrganization = FindSingleByAnyText(
+                    service,
+                    OrganizationEntityName,
+                    importData.LocationName,
+                    new[] { "ia_orgname", "ia_code" },
+                    "ia_organizationid");
+
+                if (result.LocationOrganization == null)
+                {
+                    result.Errors.Add($"Location Organization '{importData.LocationName}' does not exist by name or code.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(importData.OrgRole))
+            {
+                result.OrganizationRole = FindSingleByAnyText(
+                    service,
+                    OrganizationRoleEntityName,
+                    importData.OrgRole,
+                    new[] { "ia_name", "ia_code" },
+                    "ia_organizationroleid");
+
+                if (result.OrganizationRole == null)
+                {
+                    result.Errors.Add($"Organization Role '{importData.OrgRole}' does not exist by name or code.");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(importData.UserEmail))
+            {
+                result.User = FindSingleByText(service, UserEntityName, "ia_email", importData.UserEmail, "ia_userid");
+            }
+
+            if (result.User != null && result.LocationOrganization != null && result.OrganizationRole != null)
+            {
+                if (MembershipExists(service, result.User.Id, result.LocationOrganization.Id, result.OrganizationRole.Id))
+                {
+                    result.Errors.Add("Duplicate membership: this user already has the same organization and organization role.");
+                }
+            }
+
+            return result;
+        }
+
+        private static Guid CreateUser(IOrganizationService service, BulkUserImportData importData)
+        {
+            Entity user = new Entity(UserEntityName);
+            SetIfHasValue(user, "ia_firstname", importData.UserFirstName);
+            SetIfHasValue(user, "ia_lastname", importData.UserLastName);
+            SetIfHasValue(user, "ia_phone", importData.UserPhone);
+            user["ia_email"] = importData.UserEmail;
+
+            return service.Create(user);
+        }
+
+        private static void CreateOrganizationMembership(
+            IOrganizationService service,
+            BulkUserImportData importData,
+            Guid userId,
+            Guid organizationId,
+            Guid parentOrganizationId,
+            Guid organizationRoleId)
+        {
+            Entity membership = new Entity(MembershipEntityName);
+
+            membership["ia_name"] = BuildMembershipName(importData.UserFirstName, importData.UserLastName, importData.LocationName);
+            membership["ia_userid"] = new EntityReference(UserEntityName, userId);
+            membership["ia_organizationid"] = new EntityReference(OrganizationEntityName, organizationId);
+            membership["ia_parentorganizationid"] = new EntityReference(OrganizationEntityName, parentOrganizationId);
+            membership["ia_organizationroleid"] = new EntityReference(OrganizationRoleEntityName, organizationRoleId);
+            membership["ia_startdate"] = DateTime.UtcNow;
+            membership["ia_islatest"] = true;
+
+            service.Create(membership);
+        }
+
+        private static void SetImportError(IOrganizationService service, Guid importRecordId, string errorMessage)
+        {
+            SetImportFailed(service, importRecordId, errorMessage);
+        }
+
+        private static void SetImportFailed(IOrganizationService service, Guid importRecordId, string errorMessage)
+        {
+            Entity update = new Entity(BulkImportEntityName, importRecordId);
+            update["ia_errorlog"] = errorMessage;
+            update["ia_status"] = new OptionSetValue(StatusFailed);
+            service.Update(update);
+        }
+
+        private static void SetImportCompleted(IOrganizationService service, Guid importRecordId)
+        {
+            Entity update = new Entity(BulkImportEntityName, importRecordId);
+            update["ia_errorlog"] = null;
+            update["ia_status"] = new OptionSetValue(StatusCompleted);
+            update["statecode"] = new OptionSetValue(1);
+            update["statuscode"] = new OptionSetValue(2);
+            service.Update(update);
+        }
+
+        private static void SetImportStatus(IOrganizationService service, Guid importRecordId, int statusValue)
+        {
+            Entity update = new Entity(BulkImportEntityName, importRecordId);
+            update["ia_status"] = new OptionSetValue(statusValue);
+            service.Update(update);
+        }
+
+        private static Entity FindSingleByText(
+            IOrganizationService service,
+            string entityName,
+            string attributeName,
+            string value,
+            params string[] columns)
+        {
+            QueryExpression query = new QueryExpression(entityName)
+            {
+                ColumnSet = columns == null || columns.Length == 0 ? new ColumnSet(false) : new ColumnSet(columns),
+                TopCount = 1
+            };
+
+            query.Criteria.AddCondition(attributeName, ConditionOperator.Equal, value);
+
+            EntityCollection results = service.RetrieveMultiple(query);
+            return results.Entities.Count == 0 ? null : results.Entities[0];
+        }
+
+        private static bool ShouldSkipTriggeredStatusUpdate(IOrganizationService service, IWorkflowContext workflowContext)
+        {
+            if (!string.Equals(workflowContext.MessageName, "Update", StringComparison.OrdinalIgnoreCase) ||
+                workflowContext.Depth <= 1)
+            {
+                return false;
+            }
+
+            Entity importRecord = service.Retrieve(BulkImportEntityName, workflowContext.PrimaryEntityId, new ColumnSet("ia_status"));
+            OptionSetValue status = importRecord.GetAttributeValue<OptionSetValue>("ia_status");
+
+            if (status == null || status.Value == StatusFailed)
+            {
+                return false;
+            }
+
+            return status.Value == StatusValidating ||
+                status.Value == StatusProcessing ||
+                status.Value == StatusCompleted;
+        }
+
+        private static Entity FindSingleByAnyText(
+            IOrganizationService service,
+            string entityName,
+            string value,
+            string[] attributeNames,
+            params string[] columns)
+        {
+            QueryExpression query = new QueryExpression(entityName)
+            {
+                ColumnSet = columns == null || columns.Length == 0 ? new ColumnSet(false) : new ColumnSet(columns),
+                TopCount = 1
+            };
+
+            FilterExpression anyMatch = new FilterExpression(LogicalOperator.Or);
+            foreach (string attributeName in attributeNames)
+            {
+                anyMatch.AddCondition(attributeName, ConditionOperator.Equal, value);
+            }
+
+            query.Criteria.AddFilter(anyMatch);
+
+            EntityCollection results = service.RetrieveMultiple(query);
+            return results.Entities.Count == 0 ? null : results.Entities[0];
+        }
+
+        private static bool MembershipExists(IOrganizationService service, Guid userId, Guid organizationId, Guid organizationRoleId)
+        {
+            QueryExpression query = new QueryExpression(MembershipEntityName)
+            {
+                ColumnSet = new ColumnSet(false),
+                TopCount = 1
+            };
+
+            query.Criteria.AddCondition("ia_userid", ConditionOperator.Equal, userId);
+            query.Criteria.AddCondition("ia_organizationid", ConditionOperator.Equal, organizationId);
+            query.Criteria.AddCondition("ia_organizationroleid", ConditionOperator.Equal, organizationRoleId);
+
+            return service.RetrieveMultiple(query).Entities.Count > 0;
+        }
+
+        private static string BuildValidationMessage(List<string> errors)
+        {
+            return string.Join(Environment.NewLine, errors);
+        }
+
+        private static string GetErrorLogMessage(Exception ex)
+        {
+            if (ex is InvalidPluginExecutionException)
+            {
+                return ex.Message;
+            }
+
+            return "Unexpected error while processing bulk user import: " + ex.Message;
+        }
+
+        private static void SetIfHasValue(Entity target, string targetAttribute, string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                target[targetAttribute] = value.Trim();
+            }
+        }
+
+        private static string BuildMembershipName(string firstName, string lastName, string orgName)
+        {
+            string fullName = string.Join(" ", new[] { firstName, lastName }).Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                return orgName;
+            }
+
+            return string.IsNullOrWhiteSpace(orgName) ? fullName : $"{fullName} - {orgName}";
+        }
+
+        private static void NormalizeImportData(BulkUserImportData importData)
+        {
+            importData.OrgName = TrimToNull(importData.OrgName);
+            importData.UserFirstName = TrimToNull(importData.UserFirstName);
+            importData.UserLastName = TrimToNull(importData.UserLastName);
+            importData.UserPhone = TrimToNull(importData.UserPhone);
+            importData.UserEmail = TrimToNull(importData.UserEmail);
+            importData.LocationName = TrimToNull(importData.LocationName);
+            importData.OrgRole = TrimToNull(importData.OrgRole);
+
+            if (!string.IsNullOrWhiteSpace(importData.UserEmail))
+            {
+                importData.UserEmail = importData.UserEmail.ToLowerInvariant();
+            }
+        }
+
+        private static string TrimToNull(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private sealed class ImportValidationResult
+        {
+            public List<string> Errors { get; } = new List<string>();
+
+            public Entity ParentOrganization { get; set; }
+
+            public Entity LocationOrganization { get; set; }
+
+            public Entity OrganizationRole { get; set; }
+
+            public Entity User { get; set; }
+        }
+
+        private sealed class BulkUserImportData
+        {
+            public string OrgName { get; set; }
+
+            public string UserFirstName { get; set; }
+
+            public string UserLastName { get; set; }
+
+            public string UserPhone { get; set; }
+
+            public string UserEmail { get; set; }
+
+            public string LocationName { get; set; }
+
+            public string OrgRole { get; set; }
+        }
     }
-  ]
 }
-```
-
-Premium-user response example:
-
-```json
-{
-  "success": true,
-  "isPremium": true,
-  "shouldBlur": false,
-  "data": [
-    {
-      "userId": "...",
-      "name": "Priya",
-      "image": "https://...",
-      "isPremium": true,
-      "shouldBlur": false,
-      "user": {},
-      "profile": {}
-    }
-  ]
-}
-```
-
-## Matches
-
-### GET `/api/matches`
-
-Use: Get current user's active matches.
-
-```bash
-curl -X GET "$BASE_URL/api/matches" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### DELETE `/api/matches/:matchId`
-
-Use: Unmatch a user. This deletes the match, related conversation, messages, and likes between both users.
-
-```bash
-curl -X DELETE "$BASE_URL/api/matches/$MATCH_ID" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-## Chats
-
-### GET `/api/chats/conversations`
-
-Use: Get conversations for the current user.
-
-```bash
-curl -X GET "$BASE_URL/api/chats/conversations" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### GET `/api/chats/:conversationId/messages`
-
-Use: Get all messages in a conversation.
-
-```bash
-curl -X GET "$BASE_URL/api/chats/$CONVERSATION_ID/messages" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### POST `/api/chats/send`
-
-Use: Send a text message by REST API. Also emits `new_message` over Socket.IO if connected users joined the conversation room.
-
-```bash
-curl -X POST "$BASE_URL/api/chats/send" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "conversationId": "'"$CONVERSATION_ID"'",
-    "text": "Hey, how are you?"
-  }'
-```
-
-### POST `/api/chats/fcm-token`
-
-Use: Save current device FCM token for push notifications.
-
-```bash
-curl -X POST "$BASE_URL/api/chats/fcm-token" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "fcmToken": "DEVICE_FCM_TOKEN"
-  }'
-```
-
-## Subscriptions
-
-### POST `/api/subscription/verify`
-
-Use: Verify Google Play purchase token on backend and activate premium.
-
-Do not unlock premium on frontend until this API returns success.
-
-```bash
-curl -X POST "$BASE_URL/api/subscription/verify" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "purchaseToken": "GOOGLE_PLAY_PURCHASE_TOKEN",
-    "productId": "premium_monthly"
-  }'
-```
-
-Supported development product IDs:
-
-```text
-premium_monthly
-premium_quarterly
-premium_yearly
-```
-
-Success response:
-
-```json
-{
-  "success": true,
-  "plan": "premium",
-  "status": "active",
-  "productId": "premium_monthly",
-  "expiryDate": "2026-06-15T00:00:00.000Z",
-  "autoRenewing": true
-}
-```
-
-### GET `/api/subscription/me`
-
-Use: Get current user's subscription from backend.
-
-Frontend should use this response to decide premium UI access, not local purchase state.
-
-```bash
-curl -X GET "$BASE_URL/api/subscription/me" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-Example response:
-
-```json
-{
-  "success": true,
-  "subscription": {
-    "plan": "premium",
-    "status": "active",
-    "productId": "premium_monthly",
-    "platform": "android",
-    "startDate": "2026-05-15T00:00:00.000Z",
-    "expiryDate": "2026-06-15T00:00:00.000Z",
-    "autoRenewing": true
-  }
-}
-```
-
-### POST `/api/subscription/cancel`
-
-Use: Mark subscription as cancelled locally. This does not call Google cancel API.
-
-```bash
-curl -X POST "$BASE_URL/api/subscription/cancel" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### PATCH `/api/subscription/admin/users/:userId`
-
-Use: Admin API to manually set any user subscription to `premium` or `free`.
-
-This API does not use Firebase auth. It requires the backend env variable `ADMIN_API_KEY`, and the same value must be sent in the `X-Admin-Api-Key` header.
-
-Set user as premium:
-
-```bash
-curl -X PATCH "$BASE_URL/api/subscription/admin/users/$TARGET_USER_ID" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "plan": "premium",
-    "productId": "admin_premium",
-    "expiryDate": "2026-12-31T23:59:59.000Z",
-    "autoRenewing": false
-  }'
-```
-
-Set user as free:
-
-```bash
-curl -X PATCH "$BASE_URL/api/subscription/admin/users/$TARGET_USER_ID" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "plan": "free"
-  }'
-```
-
-Success response:
-
-```json
-{
-  "success": true,
-  "data": {
-    "userId": "...",
-    "subscription": {
-      "plan": "premium",
-      "status": "active",
-      "productId": "admin_premium",
-      "platform": "android",
-      "startDate": "2026-05-22T00:00:00.000Z",
-      "expiryDate": "2026-12-31T23:59:59.000Z",
-      "autoRenewing": false
-    }
-  }
-}
-```
-
-## Admin User APIs
-
-All admin user APIs require:
-
-```http
-X-Admin-Api-Key: YOUR_ADMIN_API_KEY
-```
-
-These APIs are for the admin panel and do not use Firebase user auth.
-
-### GET `/api/users`
-
-Use: List users for admin panel.
-
-Query params:
-
-```text
-gender
-plan
-search
-page
-limit
-```
-
-Example:
-
-```bash
-curl -X GET "$BASE_URL/api/users?gender=female&plan=premium&search=priya&page=1&limit=20" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "data": [],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 0,
-    "totalPages": 0
-  }
-}
-```
-
-### GET `/api/users/:id`
-
-Use: Get one user with profile details.
-
-```bash
-curl -X GET "$BASE_URL/api/users/$TARGET_USER_ID" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
-```
-
-### POST `/api/users`
-
-Use: Create a user from admin panel. `firebaseUid` is required because Firebase Auth is the login identity for app users.
-
-```bash
-curl -X POST "$BASE_URL/api/users" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "firebaseUid": "admin-created-user-001",
-    "email": "new-user@example.com",
-    "name": "New User",
-    "subscription": {
-      "plan": "free",
-      "status": "active"
-    },
-    "profile": {
-      "name": "New User",
-      "gender": "female",
-      "age": 25,
-      "bio": "Created from admin panel",
-      "lookingFor": "long-term relationship",
-      "zodiac": "Virgo",
-      "height": 165,
-      "religion": "Hindu",
-      "interests": ["music", "travel"],
-      "location": {
-        "lat": 28.6139,
-        "lng": 77.2090
-      }
-    }
-  }'
-```
-
-### PUT `/api/users/:id`
-
-Use: Update user and optional profile details.
-
-```bash
-curl -X PUT "$BASE_URL/api/users/$TARGET_USER_ID" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "updated@example.com",
-    "name": "Updated Name",
-    "subscription": {
-      "plan": "premium",
-      "status": "active",
-      "productId": "admin_premium",
-      "platform": "android",
-      "startDate": "2026-05-22T00:00:00.000Z",
-      "expiryDate": "2026-12-31T23:59:59.000Z",
-      "autoRenewing": false
-    },
-    "profile": {
-      "bio": "Updated by admin",
-      "lookingFor": "marriage",
-      "zodiac": "Leo",
-      "height": 170,
-      "religion": "Christian"
-    }
-  }'
-```
-
-### DELETE `/api/users/:id`
-
-Use: Delete user and related profile, likes, matches, conversations, and messages.
-
-```bash
-curl -X DELETE "$BASE_URL/api/users/$TARGET_USER_ID" \
-  -H "X-Admin-Api-Key: $ADMIN_API_KEY"
-```
-
-Success response:
-
-```json
-{
-  "success": true,
-  "message": "User deleted successfully",
-  "data": {
-    "deletedUser": true,
-    "deletedProfile": 1,
-    "deletedLikes": 2,
-    "deletedMatches": 1,
-    "deletedConversations": 1,
-    "deletedMessages": 10
-  }
-}
-```
-
-## Socket.IO Chat
-
-Socket URL:
-
-```text
-http://localhost:5000
-```
-
-Authentication options supported by backend:
-
-```js
-const socket = io(BASE_URL, {
-  auth: {
-    token: firebaseIdToken
-  }
-});
-```
-
-The backend also accepts token in query as `token` or in `Authorization: Bearer <token>` header.
-
-### Event: `join_conversation`
-
-Use: Join a conversation room before listening for new messages.
-
-```js
-socket.emit("join_conversation", conversationId, (ack) => {
-  console.log(ack);
-});
-```
-
-Success ack:
-
-```json
-{
-  "success": true
-}
-```
-
-### Event: `send_message`
-
-Use: Send a text message over Socket.IO.
-
-```js
-socket.emit(
-  "send_message",
-  {
-    "conversationId": "MONGO_CONVERSATION_ID",
-    "text": "Hello"
-  },
-  (ack) => {
-    console.log(ack);
-  }
-);
-```
-
-Success ack:
-
-```json
-{
-  "success": true,
-  "data": {
-    "_id": "...",
-    "conversationId": "...",
-    "senderId": "...",
-    "text": "Hello",
-    "messageType": "text",
-    "isSeen": false,
-    "createdAt": "..."
-  }
-}
-```
-
-### Event: `new_message`
-
-Use: Listen for new messages in joined conversations.
-
-```js
-socket.on("new_message", (message) => {
-  console.log(message);
-});
-```
-
-## Common Errors
-
-### Missing or invalid Firebase token
-
-```json
-{
-  "success": false,
-  "message": "Authorization token missing or invalid format"
-}
-```
-
-or:
-
-```json
-{
-  "success": false,
-  "message": "Invalid or expired token"
-}
-```
-
-### Premium required
-
-```json
-{
-  "success": false,
-  "message": "Premium subscription required"
-}
-```
-
-### Daily swipe limit reached
-
-```json
-{
-  "success": false,
-  "message": "Daily swipe limit reached"
-}
-```
-
-## Frontend Integration Notes
-
-- Firebase login happens on frontend first.
-- Send the Firebase ID token as `Authorization: Bearer <token>` to every protected API.
-- Use `/api/auth/login` after Firebase login to bootstrap the MongoDB user.
-- Use `/api/subscription/me` after app start/login to decide whether to show premium UI.
-- Use `/api/subscription/verify` after Google Play purchase completes. Do not trust frontend purchase state by itself.
-- Free users can perform 10 new swipes per UTC day.
-- Premium users can swipe without limit and receive full details from `/api/likes/received`.
-- Free users can call `/api/likes/received`, but should blur cards when `shouldBlur` is `true`.
-- For chat, load conversations by REST, join a conversation room by Socket.IO, then listen for `new_message`.

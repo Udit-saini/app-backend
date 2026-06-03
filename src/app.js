@@ -9,6 +9,7 @@ const matchRoutes = require("./modules/matches/match.routes");
 const chatRoutes = require("./modules/chats/chat.routes");
 const subscriptionRoutes = require("./modules/subscriptions/subscription.routes");
 const userRoutes = require("./modules/users/user.routes");
+const nearbyRoutes = require("./modules/nearby/nearby.routes");
 const errorMiddleware = require("./middlewares/error.middleware");
 
 const app = express();
@@ -26,6 +27,7 @@ app.use("/api/matches", matchRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/nearby", nearbyRoutes);
 
 app.use(errorMiddleware);
 
