@@ -20,8 +20,23 @@ const ensureConversationForMatch = async (matchId) => {
     return null;
   }
 
+  const pairKey = match.users.map((id) => String(id)).sort().join(":");
+  const existingForPair = await Conversation.findOne({ pairKey })
+    .select("_id matchId conversationType")
+    .lean();
+  if (existingForPair) {
+    if (!existingForPair.matchId || existingForPair.conversationType === "direct") {
+      await Conversation.updateOne(
+        { _id: existingForPair._id },
+        { $set: { matchId, conversationType: "match" } }
+      );
+    }
+    return { _id: existingForPair._id };
+  }
+
   const created = await Conversation.create({
     matchId,
+    conversationType: "match",
     participants: match.users,
     lastMessage: "",
     lastMessageAt: null,
@@ -29,6 +44,39 @@ const ensureConversationForMatch = async (matchId) => {
   });
 
   return { _id: created._id };
+};
+
+const ensureConversationForParticipants = async ({ userAId, userBId }) => {
+  if (!mongoose.Types.ObjectId.isValid(userAId) || !mongoose.Types.ObjectId.isValid(userBId)) {
+    return null;
+  }
+
+  const participants = [userAId, userBId];
+  const pairKey = participants.map((id) => String(id)).sort().join(":");
+
+  const existing = await Conversation.findOne({ pairKey }).select("_id").lean();
+  if (existing) {
+    return existing;
+  }
+
+  try {
+    const created = await Conversation.create({
+      matchId: new mongoose.Types.ObjectId(),
+      conversationType: "direct",
+      participants,
+      pairKey,
+      lastMessage: "",
+      lastMessageAt: null,
+      lastMessageSenderId: null,
+    });
+
+    return { _id: created._id };
+  } catch (error) {
+    if (error.code === 11000) {
+      return Conversation.findOne({ pairKey }).select("_id").lean();
+    }
+    throw error;
+  }
 };
 
 const sendMessage = async ({ conversationId, senderId, text, io }) => {
@@ -62,11 +110,13 @@ const sendMessage = async ({ conversationId, senderId, text, io }) => {
     throw err;
   }
 
-  const match = await Match.findById(conversation.matchId).select("isActive").lean();
-  if (!match || !match.isActive) {
-    const err = new Error("Match is not active");
-    err.statusCode = 403;
-    throw err;
+  if (conversation.matchId && conversation.conversationType !== "direct") {
+    const match = await Match.findById(conversation.matchId).select("isActive").lean();
+    if (!match || !match.isActive) {
+      const err = new Error("Match is not active");
+      err.statusCode = 403;
+      throw err;
+    }
   }
 
   const messageDoc = await Message.create({
@@ -121,5 +171,6 @@ const sendMessage = async ({ conversationId, senderId, text, io }) => {
 
 module.exports = {
   ensureConversationForMatch,
+  ensureConversationForParticipants,
   sendMessage,
 };

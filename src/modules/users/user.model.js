@@ -37,6 +37,14 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    dailyDirectMessageCount: {
+      type: Number,
+      default: 0,
+    },
+    dailyDirectMessageDate: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

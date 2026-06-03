@@ -15,6 +15,8 @@ const USER_FIELDS = [
   "subscription",
   "dailySwipeCount",
   "dailySwipeDate",
+  "dailyDirectMessageCount",
+  "dailyDirectMessageDate",
 ];
 
 const PROFILE_FIELDS = [

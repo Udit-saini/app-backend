@@ -3,7 +3,6 @@ const Profile = require("../profiles/profile.model");
 const Like = require("../likes/like.model");
 const Match = require("../matches/match.model");
 const { getDiscoveryGenderFilter } = require("../../utils/genderPreference");
-const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { calculateDistance } = require("../../utils/distance");
 const { hasActivePremium } = require("../subscriptions/subscription.service");
 
@@ -140,10 +139,12 @@ const getNearbyFeed = async ({ user, radiusKm, minAge, maxAge }) => {
     ...genderFilter,
     ...ageFilter,
   })
-    .select("name age bio interests images location userId")
+    .select(
+      "userId name gender age bio lookingFor zodiac height religion interests images location createdAt updatedAt"
+    )
     .lean();
 
-  return candidates
+  const data = candidates
     .map((profile) => {
       const distanceKm = calculateDistance(
         myProfile.location.lat,
@@ -157,18 +158,18 @@ const getNearbyFeed = async ({ user, radiusKm, minAge, maxAge }) => {
       }
 
       return {
-        userId: profile.userId,
-        name: profile.name,
-        age: profile.age,
-        bio: profile.bio,
-        interests: profile.interests || [],
-        image: getPrimaryImageUrl(profile.images),
+        ...profile,
         distanceKm,
       };
     })
     .filter(Boolean)
     .sort((left, right) => left.distanceKm - right.distanceKm)
     .slice(0, MAX_NEARBY_RESULTS);
+
+  return {
+    data,
+    isPremium,
+  };
 };
 
 module.exports = {

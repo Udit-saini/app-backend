@@ -31,7 +31,8 @@ const getConversations = async (req, res, next) => {
 
       return {
         conversationId: c._id,
-        matchId: c.matchId,
+        matchId: c.conversationType === "direct" ? null : c.matchId,
+        conversationType: c.conversationType || "match",
         lastMessage: c.lastMessage,
         lastMessageAt: c.lastMessageAt,
         lastMessageSenderId: c.lastMessageSenderId,

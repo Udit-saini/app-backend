@@ -5,9 +5,14 @@ const conversationSchema = new mongoose.Schema(
     matchId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Match",
-      required: true,
-      unique: true,
+      default: null,
     },
+    conversationType: {
+      type: String,
+      enum: ["match", "direct"],
+      default: "match",
+    },
+    pairKey: { type: String, unique: true, sparse: true },
     participants: {
       type: [
         {
@@ -29,6 +34,14 @@ const conversationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+conversationSchema.index({ matchId: 1 }, { unique: true, sparse: true });
 conversationSchema.index({ participants: 1 });
+
+conversationSchema.pre("validate", function setPairKey() {
+  if (this.participants && this.participants.length === 2) {
+    const sorted = [...this.participants].map((id) => String(id)).sort();
+    this.pairKey = sorted.join(":");
+  }
+});
 
 module.exports = mongoose.model("Conversation", conversationSchema);
