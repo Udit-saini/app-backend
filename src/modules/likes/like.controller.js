@@ -67,10 +67,28 @@ const sendMatchNotifications = async ({ userAId, userBId, matchId }) => {
   ]);
 };
 
+const sendLikeNotification = async ({ senderId, receiverId }) => {
+  const [receiverUser, senderProfile] = await Promise.all([
+    User.findById(receiverId).select("fcmToken").lean(),
+    Profile.findOne({ userId: senderId }).select("name").lean(),
+  ]);
+
+  await sendPushNotification({
+    token: receiverUser?.fcmToken,
+    title: "Someone liked you",
+    body: `${senderProfile?.name || "Someone"} liked your profile`,
+    data: {
+      type: "like",
+      senderId: String(senderId),
+    },
+  });
+};
+
 const recordAction = async (req, res, next) => {
   try {
     const { targetUserId, action } = req.body || {};
     const currentUserId = req.user._id;
+    let shouldSendLikeNotification = false;
 
     if (!targetUserId || !action) {
       return res.status(400).json({
@@ -124,12 +142,16 @@ const recordAction = async (req, res, next) => {
         toUserId: targetObjectId,
         action,
       });
+
+      shouldSendLikeNotification = action === "like";
     } else if (existingLike.action !== action) {
       // Allow changing an existing swipe (e.g. dislike -> like) and make the API idempotent.
       await Like.updateOne(
         { _id: existingLike._id },
         { $set: { action } }
       );
+
+      shouldSendLikeNotification = action === "like";
     }
 
     if (action === "dislike") {
@@ -145,6 +167,13 @@ const recordAction = async (req, res, next) => {
       .lean();
 
     if (!reverseLike) {
+      if (shouldSendLikeNotification) {
+        await sendLikeNotification({
+          senderId: currentUserId,
+          receiverId: targetObjectId,
+        });
+      }
+
       return res.status(200).json({ success: true, matched: false });
     }
 

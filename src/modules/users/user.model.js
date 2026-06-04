@@ -45,6 +45,18 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    lastAppOpenAt: {
+      type: Date,
+      default: null,
+    },
+    premiumNudgeLastSentAt: {
+      type: Date,
+      default: null,
+    },
+    premiumNudgeLastScheduledAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );

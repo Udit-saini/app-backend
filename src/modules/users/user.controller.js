@@ -17,6 +17,9 @@ const USER_FIELDS = [
   "dailySwipeDate",
   "dailyDirectMessageCount",
   "dailyDirectMessageDate",
+  "lastAppOpenAt",
+  "premiumNudgeLastSentAt",
+  "premiumNudgeLastScheduledAt",
 ];
 
 const PROFILE_FIELDS = [
