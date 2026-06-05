@@ -69,14 +69,25 @@ const sendMatchNotifications = async ({ userAId, userBId, matchId }) => {
 
 const sendLikeNotification = async ({ senderId, receiverId }) => {
   const [receiverUser, senderProfile] = await Promise.all([
-    User.findById(receiverId).select("fcmToken").lean(),
+    User.findById(receiverId).select("fcmToken subscription").lean(),
     Profile.findOne({ userId: senderId }).select("name").lean(),
   ]);
+  const receiverIsPremium = receiverUser ? await hasActivePremium(receiverUser) : false;
+  const senderName = senderProfile?.name || "Someone";
+  const notification = receiverIsPremium
+    ? {
+        title: "💘 New like!",
+        body: `${senderName} liked your profile ✨`,
+      }
+    : {
+        title: "💘 Someone has a crush on you",
+        body: "Your profile just got a like 👀 Unlock Premium to reveal who it is ✨",
+      };
 
   await sendPushNotification({
     token: receiverUser?.fcmToken,
-    title: "Someone liked you",
-    body: `${senderProfile?.name || "Someone"} liked your profile`,
+    title: notification.title,
+    body: notification.body,
     data: {
       type: "like",
       senderId: String(senderId),

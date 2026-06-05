@@ -52,18 +52,18 @@ const incrementDirectMessageCounter = async (user, currentUsed) => {
   });
 };
 
-const buildProfileSummaryMap = async (userIds) => {
+const buildProfileMap = async (userIds) => {
   const profiles = await Profile.find({ userId: { $in: userIds } })
-    .select("userId name age images")
+    .select(
+      "userId name gender age bio lookingFor zodiac height religion interests images location createdAt updatedAt"
+    )
     .lean();
 
   return new Map(
     profiles.map((profile) => [
       String(profile.userId),
       {
-        id: profile.userId,
-        name: profile.name || "",
-        age: profile.age || null,
+        ...profile,
         image: getPrimaryImageUrl(profile.images),
       },
     ])
@@ -175,14 +175,23 @@ const getInbox = async (userId) => {
     .lean();
 
   const senderIds = messages.map((message) => message.senderId);
-  const profileByUserId = await buildProfileSummaryMap(senderIds);
+  const profileByUserId = await buildProfileMap(senderIds);
 
   return messages.map((message) => ({
     directMessageId: message._id,
     sender: profileByUserId.get(String(message.senderId)) || {
-      id: message.senderId,
+      userId: message.senderId,
       name: "",
+      gender: "",
       age: null,
+      bio: "",
+      lookingFor: "",
+      zodiac: "",
+      height: null,
+      religion: "",
+      interests: [],
+      images: [],
+      location: null,
       image: null,
     },
     message: message.message,
@@ -197,14 +206,23 @@ const getSent = async (userId) => {
     .lean();
 
   const receiverIds = messages.map((message) => message.receiverId);
-  const profileByUserId = await buildProfileSummaryMap(receiverIds);
+  const profileByUserId = await buildProfileMap(receiverIds);
 
   return messages.map((message) => ({
     directMessageId: message._id,
     receiver: profileByUserId.get(String(message.receiverId)) || {
-      id: message.receiverId,
+      userId: message.receiverId,
       name: "",
+      gender: "",
       age: null,
+      bio: "",
+      lookingFor: "",
+      zodiac: "",
+      height: null,
+      religion: "",
+      interests: [],
+      images: [],
+      location: null,
       image: null,
     },
     message: message.message,

@@ -49,16 +49,16 @@ const sendPremiumNudgeIfEligible = async ({ userId, scheduledAt }) => {
 
   const notification = receivedLike
     ? {
-        title: "Someone liked you",
-        body: "See who liked your profile with Premium",
+        title: "💌 Your likes are waiting",
+        body: "Someone noticed you today 👀 Unlock Premium to see who liked you 💖",
         data: {
           type: "premium_like_nudge",
           screen: "likes_received",
         },
       }
     : {
-        title: "More people are waiting",
-        body: "Unlock Premium to discover more profiles and see likes",
+        title: "✨ More matches nearby",
+        body: "Boost your chances today 🚀 Unlock Premium for more profiles, likes, and attention 💘",
         data: {
           type: "premium_nudge",
           screen: "premium",
