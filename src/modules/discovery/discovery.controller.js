@@ -9,6 +9,7 @@ const {
 } = require("../subscriptions/subscription.service");
 
 const DUMMY_DISTANCE_KM = 5;
+const MAX_DISCOVERY_RESULTS = 50;
 
 const isSameUtcDay = (left, right = new Date()) => {
   if (!left) {
@@ -67,7 +68,7 @@ const getFeed = async (req, res, next) => {
       userId: { $nin: excludeObjectIds },
       ...genderFilter,
     })
-      .limit(20)
+      .limit(MAX_DISCOVERY_RESULTS)
       .lean();
 
     const data = candidates.map((p) => ({
