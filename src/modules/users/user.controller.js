@@ -5,6 +5,8 @@ const Like = require("../likes/like.model");
 const Match = require("../matches/match.model");
 const Conversation = require("../chats/conversation.model");
 const Message = require("../chats/message.model");
+const DirectMessage = require("../directMessages/directMessage.model");
+const { getAdmin } = require("../../config/firebase");
 
 const USER_FIELDS = [
   "firebaseUid",
@@ -82,6 +84,69 @@ const buildUserSearchMatch = (search) => {
       { "profile.name": regex },
       { "profile.bio": regex },
     ],
+  };
+};
+
+const deleteUserData = async (userObjectId, session) => {
+  const result = {
+    deletedUser: false,
+    deletedProfile: 0,
+    deletedLikes: 0,
+    deletedMatches: 0,
+    deletedConversations: 0,
+    deletedMessages: 0,
+    deletedDirectMessages: 0,
+  };
+
+  const user = await User.findById(userObjectId).session(session);
+
+  if (!user) {
+    const error = new Error("User not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const conversations = await Conversation.find({ participants: userObjectId })
+    .select("_id")
+    .session(session);
+  const conversationIds = conversations.map((conversation) => conversation._id);
+
+  if (conversationIds.length > 0) {
+    const deletedMessages = await Message.deleteMany({
+      conversationId: { $in: conversationIds },
+    }).session(session);
+    result.deletedMessages = deletedMessages.deletedCount || 0;
+  }
+
+  const deletedConversations = await Conversation.deleteMany({
+    participants: userObjectId,
+  }).session(session);
+  result.deletedConversations = deletedConversations.deletedCount || 0;
+
+  const deletedMatches = await Match.deleteMany({
+    users: userObjectId,
+  }).session(session);
+  result.deletedMatches = deletedMatches.deletedCount || 0;
+
+  const deletedLikes = await Like.deleteMany({
+    $or: [{ fromUserId: userObjectId }, { toUserId: userObjectId }],
+  }).session(session);
+  result.deletedLikes = deletedLikes.deletedCount || 0;
+
+  const deletedDirectMessages = await DirectMessage.deleteMany({
+    $or: [{ senderId: userObjectId }, { receiverId: userObjectId }],
+  }).session(session);
+  result.deletedDirectMessages = deletedDirectMessages.deletedCount || 0;
+
+  const deletedProfile = await Profile.deleteOne({ userId: userObjectId }).session(session);
+  result.deletedProfile = deletedProfile.deletedCount || 0;
+
+  await User.deleteOne({ _id: userObjectId }).session(session);
+  result.deletedUser = true;
+
+  return {
+    firebaseUid: user.firebaseUid,
+    result,
   };
 };
 
@@ -303,62 +368,54 @@ const deleteUser = async (req, res, next) => {
     }
 
     const userObjectId = new mongoose.Types.ObjectId(id);
-    const result = {
-      deletedUser: false,
-      deletedProfile: 0,
-      deletedLikes: 0,
-      deletedMatches: 0,
-      deletedConversations: 0,
-      deletedMessages: 0,
-    };
+    let deletion;
 
     await session.withTransaction(async () => {
-      const user = await User.findById(userObjectId).session(session);
-
-      if (!user) {
-        const error = new Error("User not found");
-        error.statusCode = 404;
-        throw error;
-      }
-
-      const conversations = await Conversation.find({ participants: userObjectId })
-        .select("_id")
-        .session(session);
-      const conversationIds = conversations.map((conversation) => conversation._id);
-
-      if (conversationIds.length > 0) {
-        const deletedMessages = await Message.deleteMany({
-          conversationId: { $in: conversationIds },
-        }).session(session);
-        result.deletedMessages = deletedMessages.deletedCount || 0;
-      }
-
-      const deletedConversations = await Conversation.deleteMany({
-        participants: userObjectId,
-      }).session(session);
-      result.deletedConversations = deletedConversations.deletedCount || 0;
-
-      const deletedMatches = await Match.deleteMany({
-        users: userObjectId,
-      }).session(session);
-      result.deletedMatches = deletedMatches.deletedCount || 0;
-
-      const deletedLikes = await Like.deleteMany({
-        $or: [{ fromUserId: userObjectId }, { toUserId: userObjectId }],
-      }).session(session);
-      result.deletedLikes = deletedLikes.deletedCount || 0;
-
-      const deletedProfile = await Profile.deleteOne({ userId: userObjectId }).session(session);
-      result.deletedProfile = deletedProfile.deletedCount || 0;
-
-      await User.deleteOne({ _id: userObjectId }).session(session);
-      result.deletedUser = true;
+      deletion = await deleteUserData(userObjectId, session);
     });
 
     return res.status(200).json({
       success: true,
       message: "User deleted successfully",
-      data: result,
+      data: deletion.result,
+    });
+  } catch (error) {
+    return next(error);
+  } finally {
+    session.endSession();
+  }
+};
+
+const deleteMyAccount = async (req, res, next) => {
+  const session = await mongoose.startSession();
+  try {
+    const userObjectId = req.user._id;
+    let deletion;
+
+    await session.withTransaction(async () => {
+      deletion = await deleteUserData(userObjectId, session);
+    });
+
+    let firebaseDeleted = false;
+
+    if (deletion.firebaseUid) {
+      try {
+        await getAdmin().auth().deleteUser(deletion.firebaseUid);
+        firebaseDeleted = true;
+      } catch (firebaseError) {
+        if (firebaseError.code !== "auth/user-not-found") {
+          process.stderr.write(
+            `[delete-account] Firebase delete failed for ${deletion.firebaseUid}: ${firebaseError.message}\n`
+          );
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Account deleted successfully",
+      firebaseDeleted,
+      data: deletion.result,
     });
   } catch (error) {
     return next(error);
@@ -369,6 +426,7 @@ const deleteUser = async (req, res, next) => {
 
 module.exports = {
   createUser,
+  deleteMyAccount,
   deleteUser,
   getUserById,
   listUsers,
