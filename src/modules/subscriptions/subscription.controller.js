@@ -1,5 +1,18 @@
 const subscriptionService = require("./subscription.service");
 
+const getPlans = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.getSubscriptionPlans();
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const verifySubscription = async (req, res, next) => {
   try {
     const { purchaseToken, productId } = req.body || {};
@@ -99,9 +112,84 @@ const setUserSubscriptionByAdmin = async (req, res, next) => {
   }
 };
 
+const listPlansForAdmin = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.listSubscriptionPlansForAdmin();
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const getPlanForAdmin = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.getSubscriptionPlanForAdmin(req.params.planId);
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const createPlanByAdmin = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.createSubscriptionPlanByAdmin(req.body || {});
+
+    return res.status(201).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const updatePlanByAdmin = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.updateSubscriptionPlanByAdmin(
+      req.params.planId,
+      req.body || {}
+    );
+
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const deletePlanByAdmin = async (req, res, next) => {
+  try {
+    const data = await subscriptionService.deleteSubscriptionPlanByAdmin(req.params.planId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Subscription plan deleted successfully",
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   cancelSubscription,
+  createPlanByAdmin,
+  deletePlanByAdmin,
+  getPlanForAdmin,
   getMySubscription,
+  getPlans,
+  listPlansForAdmin,
   setUserSubscriptionByAdmin,
+  updatePlanByAdmin,
   verifySubscription,
 };
