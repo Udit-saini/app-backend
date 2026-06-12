@@ -2,7 +2,7 @@ const User = require("../users/user.model");
 const mongoose = require("mongoose");
 const SubscriptionPlan = require("./subscriptionPlan.model");
 
-const FREE_DAILY_SWIPE_LIMIT = 10;
+const FREE_DAILY_SWIPE_LIMIT = 20;
 
 const DEFAULT_SUBSCRIPTION_PLANS = [
   {
