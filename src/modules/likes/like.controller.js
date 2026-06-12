@@ -95,6 +95,20 @@ const sendLikeNotification = async ({ senderId, receiverId }) => {
   });
 };
 
+const buildFreeLikePreviewCard = () => {
+  return {
+    directMessageId: null,
+    userId: null,
+    name: "Someone nearby",
+    image: null,
+    isPremium: false,
+    shouldBlur: true,
+    isPreview: true,
+    previewType: "premium_like_teaser",
+    message: "Upgrade to Premium to reveal who liked you",
+  };
+};
+
 const recordAction = async (req, res, next) => {
   try {
     const { targetUserId, action } = req.body || {};
@@ -280,7 +294,7 @@ const getReceivedLikes = async (req, res, next) => {
         success: true,
         isPremium,
         shouldBlur: !isPremium,
-        data: [],
+        data: isPremium ? [] : [buildFreeLikePreviewCard()],
       });
     }
 
