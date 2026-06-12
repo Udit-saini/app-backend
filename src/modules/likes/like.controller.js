@@ -10,6 +10,7 @@ const {
   consumeSwipeIfAllowed,
   hasActivePremium,
 } = require("../subscriptions/subscription.service");
+const { LIKE_PREVIEW_DELAY_MS } = require("../notifications/likePreviewNudge.service");
 
 const sendError = (res, next, err) => {
   if (typeof next === "function") {
@@ -106,6 +107,26 @@ const buildFreeLikePreviewCard = () => {
     isPreview: true,
     previewType: "premium_like_teaser",
     message: "Upgrade to Premium to reveal who liked you",
+  };
+};
+
+const getLikePreviewAvailability = async (userId) => {
+  const profile = await Profile.findOne({ userId })
+    .select("createdAt")
+    .lean();
+
+  if (!profile?.createdAt) {
+    return {
+      available: false,
+      availableAt: null,
+    };
+  }
+
+  const availableAt = new Date(new Date(profile.createdAt).getTime() + LIKE_PREVIEW_DELAY_MS);
+
+  return {
+    available: Date.now() >= availableAt.getTime(),
+    availableAt,
   };
 };
 
@@ -290,11 +311,16 @@ const getReceivedLikes = async (req, res, next) => {
     const isPremium = await hasActivePremium(req.user);
 
     if (likes.length === 0) {
+      const preview = isPremium
+        ? { available: false, availableAt: null }
+        : await getLikePreviewAvailability(currentUserId);
+
       return res.status(200).json({
         success: true,
         isPremium,
         shouldBlur: !isPremium,
-        data: isPremium ? [] : [buildFreeLikePreviewCard()],
+        previewAvailableAt: preview.availableAt,
+        data: !isPremium && preview.available ? [buildFreeLikePreviewCard()] : [],
       });
     }
 

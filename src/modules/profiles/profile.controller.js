@@ -1,6 +1,7 @@
 const Profile = require("./profile.model");
 const User = require("../users/user.model");
 const cloudinary = require("../../config/cloudinary");
+const { scheduleLikePreviewNudge } = require("../notifications/likePreviewNudge.service");
 
 const UPDATABLE_PROFILE_FIELDS = [
   "name",
@@ -68,6 +69,10 @@ const createProfile = async (req, res, next) => {
     });
 
     await User.findByIdAndUpdate(req.user._id, { isProfileCompleted: true }, { new: false });
+    scheduleLikePreviewNudge({
+      userId: req.user._id,
+      profileId: profile._id,
+    });
 
     return res.status(201).json({
       success: true,

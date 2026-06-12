@@ -57,6 +57,10 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    likePreviewNudgeSentAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
