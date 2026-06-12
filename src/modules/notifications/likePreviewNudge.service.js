@@ -37,7 +37,7 @@ const sendLikePreviewNudgeIfEligible = async ({ userId, profileId }) => {
 
   const result = await sendPushNotification({
     token: user.fcmToken,
-    title: "💘 Someone noticed your profile",
+    title: "💘 Someone Like your profile",
     body: "A like is waiting 👀✨",
     data: {
       type: "premium_like_teaser",
