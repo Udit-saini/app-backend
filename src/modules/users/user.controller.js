@@ -358,6 +358,25 @@ const updateUser = async (req, res, next) => {
   }
 };
 
+const deleteFirebaseAccount = async (firebaseUid) => {
+  if (!firebaseUid) {
+    return false;
+  }
+
+  try {
+    await getAdmin().auth().deleteUser(firebaseUid);
+    return true;
+  } catch (firebaseError) {
+    if (firebaseError.code === "auth/user-not-found") {
+      return true;
+    }
+    process.stderr.write(
+      `[delete-user] Firebase delete failed for ${firebaseUid}: ${firebaseError.message}\n`
+    );
+    return false;
+  }
+};
+
 const deleteUser = async (req, res, next) => {
   const session = await mongoose.startSession();
   try {
@@ -374,15 +393,87 @@ const deleteUser = async (req, res, next) => {
       deletion = await deleteUserData(userObjectId, session);
     });
 
+    const firebaseDeleted = await deleteFirebaseAccount(deletion.firebaseUid);
+
     return res.status(200).json({
       success: true,
       message: "User deleted successfully",
+      firebaseDeleted,
       data: deletion.result,
     });
   } catch (error) {
     return next(error);
   } finally {
     session.endSession();
+  }
+};
+
+const bulkDeleteUsersByEmail = async (req, res, next) => {
+  try {
+    const { emails } = req.body || {};
+
+    if (!Array.isArray(emails) || emails.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "emails must be a non-empty array",
+      });
+    }
+
+    const normalizedEmails = [
+      ...new Set(
+        emails
+          .filter((email) => typeof email === "string" && email.trim())
+          .map((email) => email.trim())
+      ),
+    ];
+
+    if (normalizedEmails.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "emails must contain at least one non-empty string",
+      });
+    }
+
+    const results = [];
+
+    for (const email of normalizedEmails) {
+      const session = await mongoose.startSession();
+
+      try {
+        const escapedEmail = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const user = await User.findOne({
+          email: new RegExp(`^${escapedEmail}$`, "i"),
+        }).session(session);
+
+        if (!user) {
+          results.push({ email, status: "not_found" });
+          continue;
+        }
+
+        let deletion;
+        await session.withTransaction(async () => {
+          deletion = await deleteUserData(user._id, session);
+        });
+
+        const firebaseDeleted = await deleteFirebaseAccount(deletion.firebaseUid);
+
+        results.push({ email, status: "deleted", firebaseDeleted });
+      } catch (error) {
+        results.push({ email, status: "failed", error: error.message });
+      } finally {
+        session.endSession();
+      }
+    }
+
+    const deleted = results.filter((result) => result.status === "deleted").length;
+
+    return res.status(200).json({
+      success: true,
+      message: `${deleted} of ${normalizedEmails.length} users deleted`,
+      data: results,
+    });
+  } catch (error) {
+    return next(error);
   }
 };
 
@@ -425,6 +516,7 @@ const deleteMyAccount = async (req, res, next) => {
 };
 
 module.exports = {
+  bulkDeleteUsersByEmail,
   createUser,
   deleteMyAccount,
   deleteUser,

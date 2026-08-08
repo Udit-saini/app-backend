@@ -10,6 +10,7 @@ router.get("/", requireAdminApiKey, userController.listUsers);
 router.get("/:id", requireAdminApiKey, userController.getUserById);
 router.post("/", requireAdminApiKey, userController.createUser);
 router.put("/:id", requireAdminApiKey, userController.updateUser);
+router.post("/bulk-delete", requireAdminApiKey, userController.bulkDeleteUsersByEmail);
 router.delete("/:id", requireAdminApiKey, userController.deleteUser);
 
 module.exports = router;

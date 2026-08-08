@@ -14,7 +14,6 @@ const startServer = async () => {
 
     initializeFirebase();
     await connectDB();
-
     const httpServer = http.createServer(app);
     const io = new Server(httpServer, {
       cors: {
