@@ -68,6 +68,7 @@ const getFeed = async (req, res, next) => {
       userId: { $nin: excludeObjectIds },
       ...genderFilter,
     })
+      .sort({ createdAt: -1 })
       .limit(MAX_DISCOVERY_RESULTS)
       .lean();
 
