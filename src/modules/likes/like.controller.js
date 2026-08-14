@@ -7,10 +7,10 @@ const { getPrimaryImageUrl } = require("../../utils/profileImage");
 const { ensureConversationForMatch } = require("../chats/chat.service");
 const { sendPushNotification } = require("../notifications/notification.service");
 const {
-  consumeSwipeIfAllowed,
   hasActivePremium,
 } = require("../subscriptions/subscription.service");
 const { LIKE_PREVIEW_DELAY_MS } = require("../notifications/likePreviewNudge.service");
+const { TOKEN_ACTIVITY, consumeTokens, refundTokens } = require("../tokens/token.service");
 
 const sendError = (res, next, err) => {
   if (typeof next === "function") {
@@ -31,6 +31,9 @@ const findExistingMatch = async (userA, userB) => {
     .select("_id")
     .lean();
 };
+
+const getActionActivityKey = (action) =>
+  action === "dislike" ? TOKEN_ACTIVITY.DISLIKE_PROFILE : TOKEN_ACTIVITY.LIKE_PROFILE;
 
 const sendMatchNotifications = async ({ userAId, userBId, matchId }) => {
   const [users, profiles] = await Promise.all([
@@ -158,6 +161,7 @@ const recordAction = async (req, res, next) => {
     }
 
     const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+    let tokenCharge = null;
 
     if (String(targetObjectId) === String(currentUserId)) {
       return res.status(400).json({
@@ -174,34 +178,78 @@ const recordAction = async (req, res, next) => {
       .lean();
 
     if (!existingLike) {
-      const swipeAccess = await consumeSwipeIfAllowed(req.user);
-
-      if (!swipeAccess.allowed) {
-        return res.status(403).json({
-          success: false,
-          message: "Daily swipe limit reached",
-        });
-      }
-
-      await Like.create({
-        fromUserId: currentUserId,
-        toUserId: targetObjectId,
-        action,
+      const activityKey = getActionActivityKey(action);
+      tokenCharge = await consumeTokens({
+        userId: currentUserId,
+        activityKey,
+        metadata: {
+          targetUserId: String(targetObjectId),
+          action,
+          source: "likes_action",
+        },
       });
+
+      try {
+        await Like.create({
+          fromUserId: currentUserId,
+          toUserId: targetObjectId,
+          action,
+        });
+      } catch (createError) {
+        if (tokenCharge?.charged) {
+          await refundTokens({
+            userId: currentUserId,
+            activityKey,
+            amount: tokenCharge.cost,
+            metadata: {
+              reason: "like_create_failed",
+              targetUserId: String(targetObjectId),
+            },
+          });
+        }
+        throw createError;
+      }
 
       shouldSendLikeNotification = action === "like";
     } else if (existingLike.action !== action) {
       // Allow changing an existing swipe (e.g. dislike -> like) and make the API idempotent.
-      await Like.updateOne(
-        { _id: existingLike._id },
-        { $set: { action } }
-      );
+      const activityKey = getActionActivityKey(action);
+      tokenCharge = await consumeTokens({
+        userId: currentUserId,
+        activityKey,
+        metadata: {
+          targetUserId: String(targetObjectId),
+          previousAction: existingLike.action,
+          action,
+          source: "likes_action_change",
+        },
+      });
+
+      try {
+        await Like.updateOne(
+          { _id: existingLike._id },
+          { $set: { action } }
+        );
+      } catch (updateError) {
+        if (tokenCharge?.charged) {
+          await refundTokens({
+            userId: currentUserId,
+            activityKey,
+            amount: tokenCharge.cost,
+            metadata: {
+              reason: "like_update_failed",
+              targetUserId: String(targetObjectId),
+            },
+          });
+        }
+        throw updateError;
+      }
 
       shouldSendLikeNotification = action === "like";
     }
 
     if (action === "dislike") {
-      return res.status(200).json({ success: true, matched: false });
+      return res.status(200).json({ success: true, matched: false, tokenCharge });
     }
 
     const reverseLike = await Like.findOne({
@@ -220,7 +268,7 @@ const recordAction = async (req, res, next) => {
         });
       }
 
-      return res.status(200).json({ success: true, matched: false });
+      return res.status(200).json({ success: true, matched: false, tokenCharge });
     }
 
     const existingMatch = await findExistingMatch(currentUserId, targetObjectId);
@@ -235,6 +283,7 @@ const recordAction = async (req, res, next) => {
         success: true,
         matched: true,
         matchId: existingMatch._id,
+        tokenCharge,
         user: {
           name: targetProfile?.name || "",
           image: getPrimaryImageUrl(targetProfile?.images),
@@ -282,6 +331,7 @@ const recordAction = async (req, res, next) => {
       success: true,
       matched: true,
       matchId: newMatch._id,
+      tokenCharge,
       user: {
         name: targetProfile?.name || "",
         image: getPrimaryImageUrl(targetProfile?.images),
@@ -308,19 +358,11 @@ const getReceivedLikes = async (req, res, next) => {
       .select("fromUserId")
       .lean();
 
-    const isPremium = await hasActivePremium(req.user);
-
     if (likes.length === 0) {
-      const preview = isPremium
-        ? { available: false, availableAt: null }
-        : await getLikePreviewAvailability(currentUserId);
-
       return res.status(200).json({
         success: true,
-        isPremium,
-        shouldBlur: !isPremium,
-        previewAvailableAt: preview.availableAt,
-        data: !isPremium && preview.available ? [buildFreeLikePreviewCard()] : [],
+        shouldBlur: false,
+        data: [],
       });
     }
 
@@ -337,20 +379,11 @@ const getReceivedLikes = async (req, res, next) => {
 
     const data = likes.map((like) => {
       const p = byUserId.get(String(like.fromUserId));
-      const basicCard = {
+      return {
         userId: like.fromUserId,
         name: p?.name || "",
         image: getPrimaryImageUrl(p?.images),
-        isPremium,
-        shouldBlur: !isPremium,
-      };
-
-      if (!isPremium) {
-        return basicCard;
-      }
-
-      return {
-        ...basicCard,
+        shouldBlur: false,
         user: p?.userId || null,
         profile: p || null,
       };
@@ -358,8 +391,7 @@ const getReceivedLikes = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      isPremium,
-      shouldBlur: !isPremium,
+      shouldBlur: false,
       data,
     });
   } catch (error) {

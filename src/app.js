@@ -11,6 +11,7 @@ const subscriptionRoutes = require("./modules/subscriptions/subscription.routes"
 const userRoutes = require("./modules/users/user.routes");
 const nearbyRoutes = require("./modules/nearby/nearby.routes");
 const directMessageRoutes = require("./modules/directMessages/directMessage.routes");
+const tokenRoutes = require("./modules/tokens/token.routes");
 const errorMiddleware = require("./middlewares/error.middleware");
 
 const app = express();
@@ -30,6 +31,7 @@ app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/nearby", nearbyRoutes);
 app.use("/api/direct-messages", directMessageRoutes);
+app.use("/api/tokens", tokenRoutes);
 
 app.use(errorMiddleware);
 //testing build

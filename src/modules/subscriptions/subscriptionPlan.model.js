@@ -44,6 +44,11 @@ const subscriptionPlanSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    tokenAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     highAmount: {
       type: Number,
       default: 0,

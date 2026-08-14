@@ -4,6 +4,7 @@ const Message = require("./message.model");
 const Match = require("../matches/match.model");
 const User = require("../users/user.model");
 const { sendPushNotification } = require("../notifications/notification.service");
+const { TOKEN_ACTIVITY, consumeTokens, refundTokens } = require("../tokens/token.service");
 
 const ensureConversationForMatch = async (matchId) => {
   if (!mongoose.Types.ObjectId.isValid(matchId)) {
@@ -119,13 +120,38 @@ const sendMessage = async ({ conversationId, senderId, text, io }) => {
     }
   }
 
-  const messageDoc = await Message.create({
-    conversationId: convObjectId,
-    senderId,
-    text: trimmed,
-    messageType: "text",
-    isSeen: false,
+  const tokenCharge = await consumeTokens({
+    userId: senderId,
+    activityKey: TOKEN_ACTIVITY.CHAT_MESSAGE,
+    metadata: {
+      conversationId: convIdStr,
+      source: "chat_send_message",
+    },
   });
+
+  let messageDoc;
+  try {
+    messageDoc = await Message.create({
+      conversationId: convObjectId,
+      senderId,
+      text: trimmed,
+      messageType: "text",
+      isSeen: false,
+    });
+  } catch (error) {
+    if (tokenCharge?.charged) {
+      await refundTokens({
+        userId: senderId,
+        activityKey: TOKEN_ACTIVITY.CHAT_MESSAGE,
+        amount: tokenCharge.cost,
+        metadata: {
+          reason: "chat_message_create_failed",
+          conversationId: convIdStr,
+        },
+      });
+    }
+    throw error;
+  }
 
   await Conversation.findByIdAndUpdate(convObjectId, {
     lastMessage: trimmed,
@@ -166,7 +192,7 @@ const sendMessage = async ({ conversationId, senderId, text, io }) => {
     });
   }
 
-  return { message: payload };
+  return { message: payload, tokenCharge };
 };
 
 module.exports = {

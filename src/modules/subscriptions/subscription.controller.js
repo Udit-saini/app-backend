@@ -31,11 +31,12 @@ const verifySubscription = async (req, res, next) => {
       });
     }
 
-    const subscription = await subscriptionService.verifyAndActivateSubscription({
+    const result = await subscriptionService.verifyAndActivateSubscription({
       userId: req.user._id,
       purchaseToken: purchaseToken.trim(),
       productId: productId.trim(),
     });
+    const { subscription, tokenPurchase } = result;
 
     return res.status(200).json({
       success: true,
@@ -44,6 +45,7 @@ const verifySubscription = async (req, res, next) => {
       productId: subscription.productId,
       expiryDate: subscription.expiryDate,
       autoRenewing: subscription.autoRenewing,
+      tokenPurchase,
     });
   } catch (error) {
     return next(error);

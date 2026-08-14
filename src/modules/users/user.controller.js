@@ -15,6 +15,7 @@ const USER_FIELDS = [
   "isProfileCompleted",
   "fcmToken",
   "subscription",
+  "tokenBalance",
   "dailySwipeCount",
   "dailySwipeDate",
   "dailyDirectMessageCount",

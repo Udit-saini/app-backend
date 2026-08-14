@@ -107,6 +107,7 @@ const postSendMessage = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       data: result.message,
+      tokenCharge: result.tokenCharge,
     });
   } catch (error) {
     return next(error);

@@ -5,10 +5,12 @@ const Profile = require("../profiles/profile.model");
 const { ensureConversationForParticipants } = require("../chats/chat.service");
 const { sendPushNotification } = require("../notifications/notification.service");
 const { getPrimaryImageUrl } = require("../../utils/profileImage");
-const { hasActivePremium } = require("../subscriptions/subscription.service");
-
-const FREE_DAILY_DIRECT_MESSAGE_LIMIT = 3;
-const PREMIUM_DAILY_DIRECT_MESSAGE_LIMIT = 20;
+const {
+  TOKEN_ACTIVITY,
+  consumeTokens,
+  getWallet,
+  refundTokens,
+} = require("../tokens/token.service");
 
 const getStartOfUtcDay = (date = new Date()) => {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
@@ -27,17 +29,15 @@ const getUserDisplayName = (user, profile) => {
 };
 
 const getDirectMessageUsage = async (user) => {
-  const isPremium = await hasActivePremium(user);
-  const limit = isPremium ? PREMIUM_DAILY_DIRECT_MESSAGE_LIMIT : FREE_DAILY_DIRECT_MESSAGE_LIMIT;
-  const used = isSameUtcDay(user.dailyDirectMessageDate)
-    ? user.dailyDirectMessageCount || 0
-    : 0;
+  const wallet = await getWallet(user._id);
+  const cost = wallet.costs.direct_message?.cost || 0;
 
   return {
-    limit,
-    used,
-    remaining: Math.max(limit - used, 0),
-    isPremium,
+    limit: cost > 0 ? Math.floor(wallet.tokenBalance / cost) : null,
+    used: isSameUtcDay(user.dailyDirectMessageDate) ? user.dailyDirectMessageCount || 0 : 0,
+    remaining: cost > 0 ? Math.floor(wallet.tokenBalance / cost) : null,
+    tokenBalance: wallet.tokenBalance,
+    tokenCost: cost,
   };
 };
 
@@ -99,7 +99,7 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
     throw error;
   }
 
-  const [receiver, existingPending, usage] = await Promise.all([
+  const [receiver, existingPending] = await Promise.all([
     User.findById(receiverObjectId).select("_id fcmToken name").lean(),
     DirectMessage.findOne({
       senderId: sender._id,
@@ -108,7 +108,6 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
     })
       .select("_id")
       .lean(),
-    getDirectMessageUsage(sender),
   ]);
 
   if (!receiver) {
@@ -123,11 +122,14 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
     throw error;
   }
 
-  if (usage.used >= usage.limit) {
-    const error = new Error("Daily direct message limit reached");
-    error.statusCode = 403;
-    throw error;
-  }
+  const tokenCharge = await consumeTokens({
+    userId: sender._id,
+    activityKey: TOKEN_ACTIVITY.DIRECT_MESSAGE,
+    metadata: {
+      receiverId: String(receiverObjectId),
+      source: "direct_message_send",
+    },
+  });
 
   let directMessage;
   try {
@@ -138,6 +140,18 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
       status: "pending",
     });
   } catch (error) {
+    if (tokenCharge?.charged) {
+      await refundTokens({
+        userId: sender._id,
+        activityKey: TOKEN_ACTIVITY.DIRECT_MESSAGE,
+        amount: tokenCharge.cost,
+        metadata: {
+          reason: "direct_message_create_failed",
+          receiverId: String(receiverObjectId),
+        },
+      });
+    }
+
     if (error.code === 11000) {
       const conflict = new Error("Direct message request already pending");
       conflict.statusCode = 409;
@@ -146,6 +160,7 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
     throw error;
   }
 
+  const usage = await getDirectMessageUsage(sender);
   await incrementDirectMessageCounter(sender, usage.used);
 
   const senderProfile = await Profile.findOne({ userId: sender._id })
@@ -162,7 +177,10 @@ const sendDirectMessage = async ({ sender, receiverId, message }) => {
     },
   });
 
-  return directMessage;
+  return {
+    directMessage,
+    tokenCharge,
+  };
 };
 
 const getInbox = async (userId) => {

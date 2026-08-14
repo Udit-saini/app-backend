@@ -1,6 +1,8 @@
 const User = require("../users/user.model");
 const mongoose = require("mongoose");
 const SubscriptionPlan = require("./subscriptionPlan.model");
+const TokenPurchase = require("./tokenPurchase.model");
+const { creditTokens } = require("../tokens/token.service");
 
 const FREE_DAILY_SWIPE_LIMIT = 20;
 
@@ -14,6 +16,7 @@ const DEFAULT_SUBSCRIPTION_PLANS = [
     title: "Premium Monthly",
     description: "Unlock premium dating features for one month.",
     amount: 0,
+    tokenAmount: 100,
     highAmount: 0,
     currency: "INR",
     features: [
@@ -39,6 +42,7 @@ const DEFAULT_SUBSCRIPTION_PLANS = [
     title: "Premium Quarterly",
     description: "Unlock premium dating features for three months.",
     amount: 0,
+    tokenAmount: 300,
     highAmount: 0,
     currency: "INR",
     features: [
@@ -64,6 +68,7 @@ const DEFAULT_SUBSCRIPTION_PLANS = [
     title: "Premium Yearly",
     description: "Unlock premium dating features for one year.",
     amount: 0,
+    tokenAmount: 1200,
     highAmount: 0,
     currency: "INR",
     features: [
@@ -95,6 +100,7 @@ const ensureDefaultSubscriptionPlans = async () => {
       $or: [
         { amount: { $exists: false } },
         { highAmount: { $exists: false } },
+        { tokenAmount: { $exists: false } },
         { currency: { $exists: false } },
       ],
     },
@@ -102,6 +108,7 @@ const ensureDefaultSubscriptionPlans = async () => {
       $set: {
         amount: 0,
         highAmount: 0,
+        tokenAmount: 0,
         currency: "INR",
       },
     }
@@ -116,6 +123,7 @@ const normalizeSubscriptionPlan = (plan) => {
   return {
     ...plan,
     amount: plan.amount ?? 0,
+    tokenAmount: Number(plan.tokenAmount ?? plan.limits?.tokenAmount ?? plan.limits?.tokens ?? plan.amount ?? 0),
     highAmount: plan.highAmount ?? 0,
     currency: plan.currency || "INR",
   };
@@ -129,7 +137,7 @@ const getSubscriptionPlans = async () => {
     isActive: true,
   })
     .select(
-      "plan productId platform billingPeriod durationMonths title description amount highAmount currency features limits sortOrder isActive"
+      "plan productId platform billingPeriod durationMonths title description amount tokenAmount highAmount currency features limits sortOrder isActive"
     )
     .sort({ sortOrder: 1, durationMonths: 1 })
     .lean();
@@ -163,6 +171,7 @@ const validateSubscriptionPlanPayload = (payload = {}, { partial = false } = {})
     "title",
     "description",
     "amount",
+    "tokenAmount",
     "highAmount",
     "currency",
     "features",
@@ -238,6 +247,16 @@ const validateSubscriptionPlanPayload = (payload = {}, { partial = false } = {})
       throw error;
     }
     data.highAmount = highAmount;
+  }
+
+  if (data.tokenAmount !== undefined) {
+    const tokenAmount = Number(data.tokenAmount);
+    if (!Number.isFinite(tokenAmount) || tokenAmount < 0) {
+      const error = new Error("tokenAmount must be a non-negative number");
+      error.statusCode = 400;
+      throw error;
+    }
+    data.tokenAmount = tokenAmount;
   }
 
   if (data.currency !== undefined) {
@@ -455,6 +474,7 @@ const verifyGooglePlaySubscription = async ({ purchaseToken, productId }) => {
 
   return {
     valid: true,
+    plan,
     expiryDate,
     autoRenewing: true,
     startDate: now,
@@ -475,6 +495,28 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
     const error = new Error("Subscription is expired");
     error.statusCode = 400;
     throw error;
+  }
+
+  const existingPurchase = await TokenPurchase.findOne({ purchaseToken }).lean();
+
+  if (existingPurchase) {
+    if (String(existingPurchase.userId) !== String(userId)) {
+      const error = new Error("Purchase token already used by another user");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const existingUser = await User.findById(userId).select("subscription tokenBalance").lean();
+
+    return {
+      subscription: sanitizeSubscription(existingUser?.subscription),
+      tokenPurchase: {
+        alreadyProcessed: true,
+        productId: existingPurchase.productId,
+        tokenAmount: existingPurchase.tokenAmount,
+        tokenBalance: existingUser?.tokenBalance ?? 0,
+      },
+    };
   }
 
   const user = await User.findByIdAndUpdate(
@@ -500,7 +542,83 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
     throw error;
   }
 
-  return sanitizeSubscription(user.subscription);
+  const tokenAmount = Number(
+    verification.plan?.tokenAmount ??
+      verification.plan?.limits?.tokenAmount ??
+      verification.plan?.limits?.tokens ??
+      verification.plan?.amount ??
+      0
+  );
+  let tokenCredit = {
+    credited: 0,
+    tokenBalance: user.tokenBalance ?? 0,
+  };
+
+  let purchaseRecord;
+
+  try {
+    purchaseRecord = await TokenPurchase.create({
+      userId,
+      productId,
+      purchaseToken,
+      tokenAmount,
+      status: "pending",
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      const duplicate = await TokenPurchase.findOne({ purchaseToken }).lean();
+      const duplicateUser = await User.findById(userId).select("tokenBalance").lean();
+      return {
+        subscription: sanitizeSubscription(user.subscription),
+        tokenPurchase: {
+          alreadyProcessed: true,
+          productId: duplicate?.productId || productId,
+          tokenAmount: duplicate?.tokenAmount ?? tokenAmount,
+          tokenBalance: duplicateUser?.tokenBalance ?? 0,
+        },
+      };
+    }
+    throw error;
+  }
+
+  try {
+    if (tokenAmount > 0) {
+      tokenCredit = await creditTokens({
+        userId,
+        amount: tokenAmount,
+        activityKey: "google_play_purchase",
+        adminNote: `Google Play purchase ${productId}`,
+        metadata: {
+          productId,
+          purchaseToken,
+          purchaseId: String(purchaseRecord._id),
+          source: "subscription_verify",
+        },
+      });
+    }
+
+    await TokenPurchase.updateOne(
+      { _id: purchaseRecord._id },
+      { $set: { status: "credited" } }
+    );
+  } catch (error) {
+    await TokenPurchase.updateOne(
+      { _id: purchaseRecord._id },
+      { $set: { status: "failed" } }
+    );
+    throw error;
+  }
+
+  return {
+    subscription: sanitizeSubscription(user.subscription),
+    tokenPurchase: {
+      alreadyProcessed: false,
+      purchaseId: purchaseRecord._id,
+      productId,
+      tokenAmount,
+      tokenBalance: tokenCredit.tokenBalance,
+    },
+  };
 };
 
 const getCurrentSubscription = async (user) => {

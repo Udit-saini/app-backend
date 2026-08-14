@@ -29,6 +29,11 @@ const userSchema = new mongoose.Schema(
       expiryDate: { type: Date, default: null },
       autoRenewing: { type: Boolean, default: false },
     },
+    tokenBalance: {
+      type: Number,
+      default: 100,
+      min: 0,
+    },
     dailySwipeCount: {
       type: Number,
       default: 0,

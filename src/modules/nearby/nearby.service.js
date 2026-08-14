@@ -4,10 +4,8 @@ const Like = require("../likes/like.model");
 const Match = require("../matches/match.model");
 const { getDiscoveryGenderFilter } = require("../../utils/genderPreference");
 const { calculateDistance } = require("../../utils/distance");
-const { hasActivePremium } = require("../subscriptions/subscription.service");
 
 const DEFAULT_RADIUS_KM = 20;
-const FREE_MAX_RADIUS_KM = 20;
 const PREMIUM_MAX_RADIUS_KM = 100;
 const MAX_NEARBY_RESULTS = 50;
 
@@ -94,14 +92,6 @@ const getNearbyFeed = async ({ user, radiusKm, minAge, maxAge }) => {
     throw error;
   }
 
-  const isPremium = await hasActivePremium(user);
-
-  if (!isPremium && requestedRadiusKm > FREE_MAX_RADIUS_KM) {
-    const error = new Error("Premium subscription required for extended radius search");
-    error.statusCode = 403;
-    throw error;
-  }
-
   const myProfile = await Profile.findOne({ userId: currentUserId })
     .select("gender location")
     .lean();
@@ -168,7 +158,7 @@ const getNearbyFeed = async ({ user, radiusKm, minAge, maxAge }) => {
 
   return {
     data,
-    isPremium,
+    maxRadiusKm: PREMIUM_MAX_RADIUS_KM,
   };
 };
 

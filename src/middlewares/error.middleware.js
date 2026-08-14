@@ -12,6 +12,10 @@ const errorMiddleware = (err, req, res, next) => {
   return res.status(status).json({
     success: false,
     message: err.message || "Internal Server Error",
+    ...(err.code ? { code: err.code } : {}),
+    ...(err.requiredTokens !== undefined ? { requiredTokens: err.requiredTokens } : {}),
+    ...(err.availableTokens !== undefined ? { availableTokens: err.availableTokens } : {}),
+    ...(err.activityKey ? { activityKey: err.activityKey } : {}),
     ...(process.env.NODE_ENV !== "production" && err.stack ? { stack: err.stack } : {}),
   });
 };

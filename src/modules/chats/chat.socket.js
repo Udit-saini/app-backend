@@ -75,12 +75,20 @@ const initChatSocket = (io) => {
         });
 
         if (typeof ack === "function") {
-          ack({ success: true, data: result.message });
+          ack({ success: true, data: result.message, tokenCharge: result.tokenCharge });
         }
       } catch (error) {
         const status = error.statusCode || 500;
         if (typeof ack === "function") {
-          ack({ success: false, message: error.message, statusCode: status });
+          ack({
+            success: false,
+            message: error.message,
+            statusCode: status,
+            code: error.code,
+            requiredTokens: error.requiredTokens,
+            availableTokens: error.availableTokens,
+            activityKey: error.activityKey,
+          });
         }
       }
     });

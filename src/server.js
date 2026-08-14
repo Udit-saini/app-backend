@@ -5,6 +5,7 @@ const connectDB = require("./config/db");
 const env = require("./config/env");
 const { initializeFirebase } = require("./config/firebase");
 const initChatSocket = require("./modules/chats/chat.socket");
+const { initializeTokenSystem } = require("./modules/tokens/token.service");
 
 const startServer = async () => {
   try {
@@ -14,6 +15,7 @@ const startServer = async () => {
 
     initializeFirebase();
     await connectDB();
+    await initializeTokenSystem();
     const httpServer = http.createServer(app);
     const io = new Server(httpServer, {
       cors: {

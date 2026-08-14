@@ -4,7 +4,7 @@ const sendDirectMessage = async (req, res, next) => {
   try {
     const { receiverId, message } = req.body || {};
 
-    await directMessageService.sendDirectMessage({
+    const result = await directMessageService.sendDirectMessage({
       sender: req.user,
       receiverId,
       message,
@@ -13,6 +13,10 @@ const sendDirectMessage = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       message: "Direct message sent",
+      data: {
+        directMessageId: result.directMessage?._id,
+        tokenCharge: result.tokenCharge,
+      },
     });
   } catch (error) {
     return next(error);
