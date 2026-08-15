@@ -31,7 +31,7 @@ const userSchema = new mongoose.Schema(
     },
     tokenBalance: {
       type: Number,
-      default: 0,
+      default: 100,
       min: 0,
     },
     lastDailyTokenGrantAt: {

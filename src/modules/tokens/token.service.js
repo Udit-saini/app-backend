@@ -12,7 +12,7 @@ const TOKEN_ACTIVITY = {
 };
 
 const DEFAULT_DAILY_TOKEN_GRANT = 0;
-const DEFAULT_FREE_TOKENS = 0;
+const DEFAULT_FREE_TOKENS = 100;
 
 const DEFAULT_TOKEN_CONFIGS = [
   {
@@ -83,7 +83,7 @@ const backfillUserTokenBalances = async () => {
     {
       $or: [{ tokenBalance: { $exists: false } }, { tokenBalance: null }],
     },
-    { $set: { tokenBalance: 0 } }
+    { $set: { tokenBalance: DEFAULT_FREE_TOKENS } }
   );
 };
 
@@ -129,7 +129,11 @@ const ensureUserTokenBalance = async (userId) => {
   }
 
   if (user.tokenBalance === undefined || user.tokenBalance === null) {
-    user = await User.findByIdAndUpdate(userId, { $set: { tokenBalance: 0 } }, { new: true })
+    user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { tokenBalance: DEFAULT_FREE_TOKENS } },
+      { new: true }
+    )
       .select("_id tokenBalance subscription lastDailyTokenGrantAt lastDailyTokenGrantAmount")
       .lean();
   }

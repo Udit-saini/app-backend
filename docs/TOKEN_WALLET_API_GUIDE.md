@@ -31,7 +31,7 @@ X-Admin-Api-Key: $ADMIN_API_KEY
 | Direct message request | `direct_message` | `10` | User creates a new direct message request |
 | Conversation message | `chat_message` | `2` | User sends each chat message through REST or socket |
 
-Subscribed users receive the active plan's daily token grant. The backend credits it once per UTC day during login, wallet lookup, or the first token-checked action.
+New users receive `100` free tokens once at signup. Subscribed users also receive the active plan's daily token grant, credited once per UTC day during login, wallet lookup, or the first token-checked action.
 
 When balance is not enough, APIs return HTTP `402`:
 
@@ -70,9 +70,9 @@ Response includes:
     "userId": "USER_ID",
     "isProfileCompleted": true,
     "tokenBalance": 100,
-    "dailyTokenGrant": 100,
-    "lastDailyTokenGrantAt": "2026-08-15T00:00:00.000Z",
-    "lastDailyTokenGrantAmount": 100
+    "dailyTokenGrant": 0,
+    "lastDailyTokenGrantAt": null,
+    "lastDailyTokenGrantAmount": 0
   }
 }
 ```
@@ -93,10 +93,10 @@ Response:
   "success": true,
   "data": {
     "tokenBalance": 100,
-    "dailyTokenGrant": 100,
-    "freeTokenGrant": 0,
-    "lastDailyTokenGrantAt": "2026-08-15T00:00:00.000Z",
-    "lastDailyTokenGrantAmount": 100,
+    "dailyTokenGrant": 0,
+    "freeTokenGrant": 100,
+    "lastDailyTokenGrantAt": null,
+    "lastDailyTokenGrantAmount": 0,
     "costs": {
       "like_profile": { "label": "Like profile", "cost": 2, "isActive": true },
       "dislike_profile": { "label": "Dislike profile", "cost": 0, "isActive": true },
