@@ -1,8 +1,15 @@
+const { ensureUserTokenBalance } = require("../tokens/token.service");
+
 const buildLoginResponse = async (user) => {
+  const walletUser = await ensureUserTokenBalance(user._id);
+
   return {
     userId: user._id,
     isProfileCompleted: user.isProfileCompleted,
-    tokenBalance: user.tokenBalance ?? 100,
+    tokenBalance: walletUser.tokenBalance ?? 0,
+    dailyTokenGrant: walletUser.dailyTokenGrant ?? 0,
+    lastDailyTokenGrantAt: walletUser.lastDailyTokenGrantAt || null,
+    lastDailyTokenGrantAmount: walletUser.lastDailyTokenGrantAmount || 0,
   };
 };
 

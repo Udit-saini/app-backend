@@ -2,32 +2,42 @@ const User = require("../users/user.model");
 const mongoose = require("mongoose");
 const SubscriptionPlan = require("./subscriptionPlan.model");
 const TokenPurchase = require("./tokenPurchase.model");
-const { creditTokens } = require("../tokens/token.service");
+const { ensureUserTokenBalance } = require("../tokens/token.service");
 
 const FREE_DAILY_SWIPE_LIMIT = 20;
+const OLD_DEFAULT_PRODUCT_IDS = ["premium_quarterly", "premium_yearly"];
+const PLAN_DAILY_TOKEN_GRANTS = {
+  WEEKLY: 100,
+  MONTHLY: 100,
+  MONTHLY_PLUS: 150,
+};
 
 const DEFAULT_SUBSCRIPTION_PLANS = [
   {
     plan: "premium",
-    productId: "premium_monthly",
+    productId: "premium_weekly",
     platform: "android",
-    billingPeriod: "monthly",
-    durationMonths: 1,
-    title: "Premium Monthly",
-    description: "Unlock premium dating features for one month.",
+    billingPeriod: "weekly",
+    durationMonths: 0,
+    durationDays: 7,
+    title: "100 Tokens Daily - Weekly",
+    description: "Get 100 tokens every day for one week to use on likes, direct messages, and chat.",
     amount: 0,
-    tokenAmount: 100,
+    tokenAmount: 700,
     highAmount: 0,
     currency: "INR",
     features: [
-      "See who liked you",
-      "Unlimited swipes",
-      "Extended nearby radius up to 100 KM",
-      "More direct messages per day",
+      "100 tokens credited every day",
+      "700 total weekly token allowance",
+      "Use tokens for likes, direct messages, and chat",
+      "Nearby radius up to 100 KM",
     ],
     limits: {
-      dailySwipes: "unlimited",
-      dailyDirectMessages: 20,
+      dailyTokenGrant: PLAN_DAILY_TOKEN_GRANTS.WEEKLY,
+      includedDays: 7,
+      includedTokens: 700,
+      dailySwipes: null,
+      dailyDirectMessages: null,
       maxNearbyRadiusKm: 100,
     },
     sortOrder: 1,
@@ -35,25 +45,29 @@ const DEFAULT_SUBSCRIPTION_PLANS = [
   },
   {
     plan: "premium",
-    productId: "premium_quarterly",
+    productId: "premium_monthly",
     platform: "android",
-    billingPeriod: "quarterly",
-    durationMonths: 3,
-    title: "Premium Quarterly",
-    description: "Unlock premium dating features for three months.",
+    billingPeriod: "monthly",
+    durationMonths: 1,
+    durationDays: null,
+    title: "100 Tokens Daily - Monthly",
+    description: "Get 100 tokens every day for one month to use on likes, direct messages, and chat.",
     amount: 0,
-    tokenAmount: 300,
+    tokenAmount: 3000,
     highAmount: 0,
     currency: "INR",
     features: [
-      "See who liked you",
-      "Unlimited swipes",
-      "Extended nearby radius up to 100 KM",
-      "More direct messages per day",
+      "100 tokens credited every day",
+      "3,000 total monthly token allowance",
+      "Use tokens for likes, direct messages, and chat",
+      "Nearby radius up to 100 KM",
     ],
     limits: {
-      dailySwipes: "unlimited",
-      dailyDirectMessages: 20,
+      dailyTokenGrant: PLAN_DAILY_TOKEN_GRANTS.MONTHLY,
+      includedDays: 30,
+      includedTokens: 3000,
+      dailySwipes: null,
+      dailyDirectMessages: null,
       maxNearbyRadiusKm: 100,
     },
     sortOrder: 2,
@@ -61,25 +75,29 @@ const DEFAULT_SUBSCRIPTION_PLANS = [
   },
   {
     plan: "premium",
-    productId: "premium_yearly",
+    productId: "premium_monthly_plus",
     platform: "android",
-    billingPeriod: "yearly",
-    durationMonths: 12,
-    title: "Premium Yearly",
-    description: "Unlock premium dating features for one year.",
+    billingPeriod: "monthly",
+    durationMonths: 1,
+    durationDays: null,
+    title: "150 Tokens Daily - Monthly",
+    description: "Get 150 tokens every day for one month with the highest daily allowance.",
     amount: 0,
-    tokenAmount: 1200,
+    tokenAmount: 4500,
     highAmount: 0,
     currency: "INR",
     features: [
-      "See who liked you",
-      "Unlimited swipes",
-      "Extended nearby radius up to 100 KM",
-      "More direct messages per day",
+      "150 tokens credited every day",
+      "4,500 total monthly token allowance",
+      "Use tokens for likes, direct messages, and chat",
+      "Nearby radius up to 100 KM",
     ],
     limits: {
-      dailySwipes: "unlimited",
-      dailyDirectMessages: 20,
+      dailyTokenGrant: PLAN_DAILY_TOKEN_GRANTS.MONTHLY_PLUS,
+      includedDays: 30,
+      includedTokens: 4500,
+      dailySwipes: null,
+      dailyDirectMessages: null,
       maxNearbyRadiusKm: 100,
     },
     sortOrder: 3,
@@ -95,6 +113,42 @@ const ensureDefaultSubscriptionPlans = async () => {
     return;
   }
 
+  await Promise.all(
+    DEFAULT_SUBSCRIPTION_PLANS.map((plan) =>
+      SubscriptionPlan.updateOne(
+        { productId: plan.productId },
+        {
+          $set: {
+            billingPeriod: plan.billingPeriod,
+            durationMonths: plan.durationMonths,
+            durationDays: plan.durationDays,
+            title: plan.title,
+            description: plan.description,
+            tokenAmount: plan.tokenAmount,
+            features: plan.features,
+            limits: plan.limits,
+            sortOrder: plan.sortOrder,
+            isActive: plan.isActive,
+          },
+          $setOnInsert: {
+            plan: plan.plan,
+            productId: plan.productId,
+            platform: plan.platform,
+            amount: plan.amount,
+            highAmount: plan.highAmount,
+            currency: plan.currency,
+          },
+        },
+        { upsert: true }
+      )
+    )
+  );
+
+  await SubscriptionPlan.updateMany(
+    { productId: { $in: OLD_DEFAULT_PRODUCT_IDS } },
+    { $set: { isActive: false } }
+  );
+
   await SubscriptionPlan.updateMany(
     {
       $or: [
@@ -108,8 +162,24 @@ const ensureDefaultSubscriptionPlans = async () => {
       $set: {
         amount: 0,
         highAmount: 0,
-        tokenAmount: 0,
         currency: "INR",
+      },
+    }
+  );
+
+  await SubscriptionPlan.updateMany(
+    {
+      $or: [
+        { "limits.dailyTokenGrant": { $exists: false } },
+        { "limits.includedDays": { $exists: false } },
+        { "limits.includedTokens": { $exists: false } },
+      ],
+    },
+    {
+      $set: {
+        "limits.dailyTokenGrant": PLAN_DAILY_TOKEN_GRANTS.MONTHLY,
+        "limits.includedDays": 30,
+        "limits.includedTokens": 3000,
       },
     }
   );
@@ -137,7 +207,7 @@ const getSubscriptionPlans = async () => {
     isActive: true,
   })
     .select(
-      "plan productId platform billingPeriod durationMonths title description amount tokenAmount highAmount currency features limits sortOrder isActive"
+      "plan productId platform billingPeriod durationMonths durationDays title description amount tokenAmount highAmount currency features limits sortOrder isActive"
     )
     .sort({ sortOrder: 1, durationMonths: 1 })
     .lean();
@@ -168,6 +238,7 @@ const validateSubscriptionPlanPayload = (payload = {}, { partial = false } = {})
     "platform",
     "billingPeriod",
     "durationMonths",
+    "durationDays",
     "title",
     "description",
     "amount",
@@ -188,7 +259,7 @@ const validateSubscriptionPlanPayload = (payload = {}, { partial = false } = {})
   }
 
   if (!partial) {
-    for (const field of ["productId", "billingPeriod", "durationMonths", "title"]) {
+    for (const field of ["productId", "billingPeriod", "title"]) {
       if (data[field] === undefined || data[field] === null || data[field] === "") {
         const error = new Error(`${field} is required`);
         error.statusCode = 400;
@@ -211,12 +282,22 @@ const validateSubscriptionPlanPayload = (payload = {}, { partial = false } = {})
 
   if (data.durationMonths !== undefined) {
     const durationMonths = Number(data.durationMonths);
-    if (!Number.isFinite(durationMonths) || durationMonths < 1) {
-      const error = new Error("durationMonths must be a positive number");
+    if (!Number.isFinite(durationMonths) || durationMonths < 0) {
+      const error = new Error("durationMonths must be zero or a positive number");
       error.statusCode = 400;
       throw error;
     }
     data.durationMonths = durationMonths;
+  }
+
+  if (data.durationDays !== undefined && data.durationDays !== null) {
+    const durationDays = Number(data.durationDays);
+    if (!Number.isFinite(durationDays) || durationDays < 1) {
+      const error = new Error("durationDays must be a positive number");
+      error.statusCode = 400;
+      throw error;
+    }
+    data.durationDays = durationDays;
   }
 
   if (data.sortOrder !== undefined) {
@@ -470,7 +551,11 @@ const verifyGooglePlaySubscription = async ({ purchaseToken, productId }) => {
 
   const now = new Date();
   const expiryDate = new Date(now);
-  expiryDate.setMonth(expiryDate.getMonth() + plan.durationMonths);
+  if (plan.durationDays) {
+    expiryDate.setDate(expiryDate.getDate() + Number(plan.durationDays));
+  } else {
+    expiryDate.setMonth(expiryDate.getMonth() + Number(plan.durationMonths || 1));
+  }
 
   return {
     valid: true,
@@ -506,7 +591,7 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
       throw error;
     }
 
-    const existingUser = await User.findById(userId).select("subscription tokenBalance").lean();
+    const existingUser = await ensureUserTokenBalance(userId);
 
     return {
       subscription: sanitizeSubscription(existingUser?.subscription),
@@ -514,6 +599,7 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
         alreadyProcessed: true,
         productId: existingPurchase.productId,
         tokenAmount: existingPurchase.tokenAmount,
+        dailyTokenGrant: existingUser?.dailyTokenGrant ?? 0,
         tokenBalance: existingUser?.tokenBalance ?? 0,
       },
     };
@@ -549,10 +635,7 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
       verification.plan?.amount ??
       0
   );
-  let tokenCredit = {
-    credited: 0,
-    tokenBalance: user.tokenBalance ?? 0,
-  };
+  const dailyTokenGrant = Number(verification.plan?.limits?.dailyTokenGrant ?? 0);
 
   let purchaseRecord;
 
@@ -567,13 +650,14 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
   } catch (error) {
     if (error.code === 11000) {
       const duplicate = await TokenPurchase.findOne({ purchaseToken }).lean();
-      const duplicateUser = await User.findById(userId).select("tokenBalance").lean();
+      const duplicateUser = await ensureUserTokenBalance(userId);
       return {
         subscription: sanitizeSubscription(user.subscription),
         tokenPurchase: {
           alreadyProcessed: true,
           productId: duplicate?.productId || productId,
           tokenAmount: duplicate?.tokenAmount ?? tokenAmount,
+          dailyTokenGrant: duplicateUser?.dailyTokenGrant ?? dailyTokenGrant,
           tokenBalance: duplicateUser?.tokenBalance ?? 0,
         },
       };
@@ -581,21 +665,10 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
     throw error;
   }
 
+  let walletUser;
+
   try {
-    if (tokenAmount > 0) {
-      tokenCredit = await creditTokens({
-        userId,
-        amount: tokenAmount,
-        activityKey: "google_play_purchase",
-        adminNote: `Google Play purchase ${productId}`,
-        metadata: {
-          productId,
-          purchaseToken,
-          purchaseId: String(purchaseRecord._id),
-          source: "subscription_verify",
-        },
-      });
-    }
+    walletUser = await ensureUserTokenBalance(userId);
 
     await TokenPurchase.updateOne(
       { _id: purchaseRecord._id },
@@ -616,7 +689,8 @@ const verifyAndActivateSubscription = async ({ userId, purchaseToken, productId 
       purchaseId: purchaseRecord._id,
       productId,
       tokenAmount,
-      tokenBalance: tokenCredit.tokenBalance,
+      dailyTokenGrant: walletUser.dailyTokenGrant ?? dailyTokenGrant,
+      tokenBalance: walletUser.tokenBalance ?? 0,
     },
   };
 };

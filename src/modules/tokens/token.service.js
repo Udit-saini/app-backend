@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const User = require("../users/user.model");
+const SubscriptionPlan = require("../subscriptions/subscriptionPlan.model");
 const TokenConfig = require("./tokenConfig.model");
 const TokenLedger = require("./tokenLedger.model");
 
@@ -10,7 +11,8 @@ const TOKEN_ACTIVITY = {
   CHAT_MESSAGE: "chat_message",
 };
 
-const DEFAULT_FREE_TOKENS = 100;
+const DEFAULT_DAILY_TOKEN_GRANT = 0;
+const DEFAULT_FREE_TOKENS = 0;
 
 const DEFAULT_TOKEN_CONFIGS = [
   {
@@ -40,6 +42,19 @@ const DEFAULT_TOKEN_CONFIGS = [
 ];
 
 const normalizeBalance = (value) => Math.max(0, Number(value || 0));
+const normalizeGrant = (value) => Math.max(0, Number(value || 0));
+
+const getStartOfUtcDay = (date = new Date()) => {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+};
+
+const isSameUtcDay = (left, right = new Date()) => {
+  if (!left) {
+    return false;
+  }
+
+  return getStartOfUtcDay(left).getTime() === getStartOfUtcDay(right).getTime();
+};
 
 const buildInsufficientTokenError = ({ requiredTokens, availableTokens, activityKey }) => {
   const error = new Error("Not enough tokens. Please top up tokens to continue.");
@@ -68,7 +83,7 @@ const backfillUserTokenBalances = async () => {
     {
       $or: [{ tokenBalance: { $exists: false } }, { tokenBalance: null }],
     },
-    { $set: { tokenBalance: DEFAULT_FREE_TOKENS } }
+    { $set: { tokenBalance: 0 } }
   );
 };
 
@@ -77,8 +92,35 @@ const initializeTokenSystem = async () => {
   await backfillUserTokenBalances();
 };
 
+const isSubscriptionCurrentlyActive = (subscription = {}) => {
+  return (
+    subscription.plan === "premium" &&
+    subscription.status === "active" &&
+    subscription.expiryDate &&
+    new Date(subscription.expiryDate).getTime() > Date.now()
+  );
+};
+
+const getUserDailyTokenGrant = async (user) => {
+  if (!isSubscriptionCurrentlyActive(user?.subscription)) {
+    return DEFAULT_DAILY_TOKEN_GRANT;
+  }
+
+  const plan = await SubscriptionPlan.findOne({
+    productId: user.subscription.productId,
+    platform: user.subscription.platform || "android",
+    isActive: true,
+  })
+    .select("limits.dailyTokenGrant")
+    .lean();
+
+  return normalizeGrant(plan?.limits?.dailyTokenGrant);
+};
+
 const ensureUserTokenBalance = async (userId) => {
-  const user = await User.findById(userId).select("_id tokenBalance").lean();
+  let user = await User.findById(userId)
+    .select("_id tokenBalance subscription lastDailyTokenGrantAt lastDailyTokenGrantAmount")
+    .lean();
 
   if (!user) {
     const error = new Error("User not found");
@@ -86,17 +128,87 @@ const ensureUserTokenBalance = async (userId) => {
     throw error;
   }
 
-  if (user.tokenBalance !== undefined && user.tokenBalance !== null) {
-    return user;
+  if (user.tokenBalance === undefined || user.tokenBalance === null) {
+    user = await User.findByIdAndUpdate(userId, { $set: { tokenBalance: 0 } }, { new: true })
+      .select("_id tokenBalance subscription lastDailyTokenGrantAt lastDailyTokenGrantAmount")
+      .lean();
   }
 
-  return User.findByIdAndUpdate(
-    userId,
-    { $set: { tokenBalance: DEFAULT_FREE_TOKENS } },
+  const dailyTokenGrant = await getUserDailyTokenGrant(user);
+  const today = getStartOfUtcDay();
+  const baseBalance = user.tokenBalance;
+  const previousGrantToday = isSameUtcDay(user.lastDailyTokenGrantAt, today)
+    ? normalizeGrant(user.lastDailyTokenGrantAmount)
+    : 0;
+  const grantToCredit = Math.max(0, dailyTokenGrant - previousGrantToday);
+
+  if (grantToCredit <= 0) {
+    return {
+      ...user,
+      tokenBalance: baseBalance,
+      dailyTokenGrant,
+    };
+  }
+
+  const updatedUser = await User.findOneAndUpdate(
+    {
+      _id: userId,
+      $or: [
+        { lastDailyTokenGrantAt: { $exists: false } },
+        { lastDailyTokenGrantAt: null },
+        { lastDailyTokenGrantAt: { $lt: today } },
+        {
+          lastDailyTokenGrantAt: today,
+          lastDailyTokenGrantAmount: { $lt: dailyTokenGrant },
+        },
+        {
+          lastDailyTokenGrantAt: today,
+          lastDailyTokenGrantAmount: { $exists: false },
+        },
+      ],
+    },
+    {
+      $set: {
+        lastDailyTokenGrantAt: today,
+        lastDailyTokenGrantAmount: dailyTokenGrant,
+      },
+      $inc: { tokenBalance: grantToCredit },
+    },
     { new: true }
   )
-    .select("_id tokenBalance")
+    .select("_id tokenBalance subscription lastDailyTokenGrantAt lastDailyTokenGrantAmount")
     .lean();
+
+  if (!updatedUser) {
+    const currentUser = await User.findById(userId)
+      .select("_id tokenBalance subscription lastDailyTokenGrantAt lastDailyTokenGrantAmount")
+      .lean();
+
+    return {
+      ...currentUser,
+      dailyTokenGrant,
+    };
+  }
+
+  await createLedgerEntry({
+    userId,
+    activityKey: "daily_token_grant",
+    type: "credit",
+    amount: grantToCredit,
+    balanceBefore: normalizeBalance(baseBalance),
+    balanceAfter: normalizeBalance(updatedUser.tokenBalance),
+    metadata: {
+      source: "subscription_daily_grant",
+      grantDate: today.toISOString(),
+      dailyTokenGrant,
+      productId: updatedUser.subscription?.productId || null,
+    },
+  });
+
+  return {
+    ...updatedUser,
+    dailyTokenGrant,
+  };
 };
 
 const getTokenConfigs = async () => {
@@ -125,7 +237,10 @@ const getWallet = async (userId) => {
 
   return {
     tokenBalance: normalizeBalance(user.tokenBalance),
+    dailyTokenGrant: normalizeGrant(user.dailyTokenGrant),
     freeTokenGrant: DEFAULT_FREE_TOKENS,
+    lastDailyTokenGrantAt: user.lastDailyTokenGrantAt || null,
+    lastDailyTokenGrantAmount: normalizeGrant(user.lastDailyTokenGrantAmount),
     costs: configs.reduce((map, config) => {
       map[config.key] = {
         label: config.label,
@@ -400,11 +515,13 @@ const getLedger = async ({ userId, page = 1, limit = 50 }) => {
 };
 
 module.exports = {
+  DEFAULT_DAILY_TOKEN_GRANT,
   DEFAULT_FREE_TOKENS,
   TOKEN_ACTIVITY,
   consumeTokens,
   creditTokens,
   ensureDefaultTokenConfigs,
+  ensureUserTokenBalance,
   getLedger,
   getTokenConfigs,
   getWallet,

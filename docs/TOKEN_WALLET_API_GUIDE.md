@@ -31,7 +31,7 @@ X-Admin-Api-Key: $ADMIN_API_KEY
 | Direct message request | `direct_message` | `10` | User creates a new direct message request |
 | Conversation message | `chat_message` | `2` | User sends each chat message through REST or socket |
 
-New users get `100` tokens by default.
+Subscribed users receive the active plan's daily token grant. The backend credits it once per UTC day during login, wallet lookup, or the first token-checked action.
 
 When balance is not enough, APIs return HTTP `402`:
 
@@ -54,7 +54,7 @@ Flutter behavior: show the top-up/paywall screen when `code == "INSUFFICIENT_TOK
 
 Screen: Splash/Login bootstrap
 
-Use this to get `userId`, `isProfileCompleted`, and initial `tokenBalance`.
+Use this to get `userId`, `isProfileCompleted`, today's `tokenBalance`, and the daily token grant details.
 
 ```bash
 curl -X POST "$BASE_URL/api/auth/login" \
@@ -69,7 +69,10 @@ Response includes:
   "data": {
     "userId": "USER_ID",
     "isProfileCompleted": true,
-    "tokenBalance": 100
+    "tokenBalance": 100,
+    "dailyTokenGrant": 100,
+    "lastDailyTokenGrantAt": "2026-08-15T00:00:00.000Z",
+    "lastDailyTokenGrantAmount": 100
   }
 }
 ```
@@ -90,7 +93,10 @@ Response:
   "success": true,
   "data": {
     "tokenBalance": 100,
-    "freeTokenGrant": 100,
+    "dailyTokenGrant": 100,
+    "freeTokenGrant": 0,
+    "lastDailyTokenGrantAt": "2026-08-15T00:00:00.000Z",
+    "lastDailyTokenGrantAmount": 100,
     "costs": {
       "like_profile": { "label": "Like profile", "cost": 2, "isActive": true },
       "dislike_profile": { "label": "Dislike profile", "cost": 0, "isActive": true },
@@ -105,7 +111,7 @@ Response:
 
 Screen: Token top-up store
 
-Use the existing subscription plans API. Each plan now includes `tokenAmount`, which is the number of tokens credited after Google Play purchase verification.
+Use the existing subscription plans API. Each plan includes `tokenAmount`, which is the total token allowance across the plan duration. Tokens are credited daily using `limits.dailyTokenGrant`.
 
 ```bash
 curl "$BASE_URL/api/subscription/plans"
@@ -119,11 +125,18 @@ Response excerpt:
   "data": {
     "plans": [
       {
-        "productId": "premium_monthly",
-        "title": "Premium Monthly",
+        "productId": "premium_weekly",
+        "title": "100 Tokens Daily - Weekly",
         "amount": 499,
         "currency": "INR",
-        "tokenAmount": 100
+        "tokenAmount": 700,
+        "durationDays": 7,
+        "limits": {
+          "dailyTokenGrant": 100,
+          "includedDays": 7,
+          "includedTokens": 700,
+          "maxNearbyRadiusKm": 100
+        }
       }
     ]
   }
@@ -140,14 +153,14 @@ Flutter behavior:
 
 Screen: Token top-up store after Google Play purchase success
 
-This reuses the existing subscription verify endpoint. It now credits tokens idempotently, meaning the same `purchaseToken` cannot credit tokens twice.
+This reuses the existing subscription verify endpoint. It activates the plan idempotently and credits today's daily token grant. The same `purchaseToken` cannot activate or credit twice.
 
 ```bash
 curl -X POST "$BASE_URL/api/subscription/verify" \
   -H "Authorization: Bearer $ID_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "productId": "premium_monthly",
+    "productId": "premium_weekly",
     "purchaseToken": "GOOGLE_PLAY_PURCHASE_TOKEN"
   }'
 ```
@@ -159,15 +172,16 @@ Response:
   "success": true,
   "plan": "premium",
   "status": "active",
-  "productId": "premium_monthly",
-  "expiryDate": "2026-09-14T00:00:00.000Z",
+  "productId": "premium_weekly",
+  "expiryDate": "2026-08-22T00:00:00.000Z",
   "autoRenewing": true,
   "tokenPurchase": {
     "alreadyProcessed": false,
     "purchaseId": "PURCHASE_RECORD_ID",
-    "productId": "premium_monthly",
-    "tokenAmount": 100,
-    "tokenBalance": 200
+    "productId": "premium_weekly",
+    "tokenAmount": 700,
+    "dailyTokenGrant": 100,
+    "tokenBalance": 100
   }
 }
 ```
@@ -179,9 +193,10 @@ Duplicate verify response:
   "success": true,
   "tokenPurchase": {
     "alreadyProcessed": true,
-    "productId": "premium_monthly",
-    "tokenAmount": 100,
-    "tokenBalance": 200
+    "productId": "premium_weekly",
+    "tokenAmount": 700,
+    "dailyTokenGrant": 100,
+    "tokenBalance": 100
   }
 }
 ```
@@ -719,15 +734,15 @@ Use keys:
 
 Admin panel: Subscription Plans page
 
-Use the existing three Google Play products/plans as token packs. Each plan has its own `tokenAmount`.
+Use the existing three Google Play products/plans as daily token subscriptions. `tokenAmount` is the full allowance across the plan duration; the backend credits `dailyTokenGrant` once per UTC day.
 
 Example setup:
 
-| Product / plan | Admin field | Example token amount |
+| Product / plan | Admin field | Default token amount |
 |---|---:|---:|
-| First recharge plan | `tokenAmount` | `100` |
-| Second recharge plan | `tokenAmount` | configure as needed |
-| Third recharge plan | `tokenAmount` | configure as needed |
+| Weekly plan, 100/day | `tokenAmount` | `700` |
+| Monthly plan, 100/day | `tokenAmount` | `3000` |
+| Monthly plan, 150/day | `tokenAmount` | `4500` |
 
 The admin can click the price/token button in the Subscription Plans table and update:
 
@@ -744,13 +759,18 @@ curl -X PUT "$BASE_URL/api/subscription/admin/plans/PLAN_ID" \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 3999,
-    "tokenAmount": 100,
+    "tokenAmount": 700,
+    "limits": {
+      "dailyTokenGrant": 100,
+      "includedDays": 7,
+      "includedTokens": 700
+    },
     "highAmount": 4999,
     "currency": "INR"
   }'
 ```
 
-When Flutter buys that plan and calls `POST /api/subscription/verify`, the backend credits exactly that plan's `tokenAmount`.
+When Flutter buys that plan and calls `POST /api/subscription/verify`, the backend activates the subscription and credits that plan's daily grant for the current UTC day.
 
 ### Top Up User Tokens
 

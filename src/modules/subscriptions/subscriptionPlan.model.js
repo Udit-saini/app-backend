@@ -26,7 +26,12 @@ const subscriptionPlanSchema = new mongoose.Schema(
     },
     durationMonths: {
       type: Number,
-      required: true,
+      default: 1,
+      min: 0,
+    },
+    durationDays: {
+      type: Number,
+      default: null,
       min: 1,
     },
     title: {
@@ -65,13 +70,25 @@ const subscriptionPlanSchema = new mongoose.Schema(
       default: [],
     },
     limits: {
+      dailyTokenGrant: {
+        type: Number,
+        default: 100,
+      },
+      includedDays: {
+        type: Number,
+        default: 30,
+      },
+      includedTokens: {
+        type: Number,
+        default: 3000,
+      },
       dailySwipes: {
         type: mongoose.Schema.Types.Mixed,
-        default: "unlimited",
+        default: null,
       },
       dailyDirectMessages: {
         type: Number,
-        default: 20,
+        default: null,
       },
       maxNearbyRadiusKm: {
         type: Number,
