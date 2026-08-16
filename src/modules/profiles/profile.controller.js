@@ -68,7 +68,11 @@ const createProfile = async (req, res, next) => {
       userId: req.user._id,
     });
 
-    await User.findByIdAndUpdate(req.user._id, { isProfileCompleted: true }, { new: false });
+    const userUpdates = { isProfileCompleted: true };
+    if (profile.name) {
+      userUpdates.name = profile.name;
+    }
+    await User.findByIdAndUpdate(req.user._id, userUpdates, { new: false });
     scheduleLikePreviewNudge({
       userId: req.user._id,
       profileId: profile._id,
