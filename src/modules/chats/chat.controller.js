@@ -5,6 +5,45 @@ const Profile = require("../profiles/profile.model");
 const User = require("../users/user.model");
 const { sendMessage: persistAndBroadcastMessage } = require("./chat.service");
 
+const getAuthorizedConversation = async ({ conversationId, currentUserId }) => {
+  if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+    const err = new Error("Invalid conversationId");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const conversation = await Conversation.findById(conversationId)
+    .select("participants matchId")
+    .lean();
+
+  if (!conversation) {
+    const err = new Error("Conversation not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (!conversation.participants.some((p) => String(p) === String(currentUserId))) {
+    const err = new Error("Forbidden");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return conversation;
+};
+
+const markIncomingMessagesSeen = async ({ conversationId, currentUserId }) => {
+  const result = await Message.updateMany(
+    {
+      conversationId: new mongoose.Types.ObjectId(conversationId),
+      senderId: { $ne: currentUserId },
+      isSeen: false,
+    },
+    { $set: { isSeen: true } }
+  );
+
+  return result.modifiedCount || 0;
+};
+
 const getConversations = async (req, res, next) => {
   try {
     const currentUserId = req.user._id;
@@ -24,21 +63,51 @@ const getConversations = async (req, res, next) => {
     const profiles = await Profile.find({ userId: { $in: otherUserIds } }).lean();
 
     const profileByUserId = new Map(profiles.map((p) => [String(p.userId), p]));
+    const conversationIds = conversations.map((c) => c._id);
+    const latestMessages = await Message.aggregate([
+      { $match: { conversationId: { $in: conversationIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$conversationId",
+          message: { $first: "$$ROOT" },
+        },
+      },
+    ]);
+    const latestMessageByConversationId = new Map(
+      latestMessages.map((row) => [String(row._id), row.message])
+    );
 
     const data = conversations.map((c) => {
       const otherId = c.participants.find((p) => String(p) !== String(currentUserId));
       const p = profileByUserId.get(String(otherId));
+      const otherUserProfile = p
+        ? {
+            ...p,
+            location: p.location || null,
+          }
+        : null;
+      const lastMessageDoc = latestMessageByConversationId.get(String(c._id)) || null;
+      const lastMessageIsMine = lastMessageDoc
+        ? String(lastMessageDoc.senderId) === String(currentUserId)
+        : false;
+      const lastMessageIsSeen = lastMessageDoc ? Boolean(lastMessageDoc.isSeen) : false;
+      const hasUnread = Boolean(lastMessageDoc && !lastMessageIsMine && !lastMessageIsSeen);
 
       return {
         conversationId: c._id,
         matchId: c.conversationType === "direct" ? null : c.matchId,
         conversationType: c.conversationType || "match",
         otherUserId: otherId,
-        otherUser: p || null,
+        otherUser: otherUserProfile,
         lastMessage: c.lastMessage,
         lastMessageAt: c.lastMessageAt,
         lastMessageSenderId: c.lastMessageSenderId,
-        otherUserProfile: p || null,
+        lastMessageId: lastMessageDoc?._id || null,
+        lastMessageIsSeen,
+        lastMessageIsMine,
+        hasUnread,
+        otherUserProfile,
       };
     });
 
@@ -53,27 +122,8 @@ const getMessages = async (req, res, next) => {
     const { conversationId } = req.params;
     const currentUserId = req.user._id;
 
-    if (!mongoose.Types.ObjectId.isValid(conversationId)) {
-      const err = new Error("Invalid conversationId");
-      err.statusCode = 400;
-      return next(err);
-    }
-
-    const conversation = await Conversation.findById(conversationId)
-      .select("participants matchId")
-      .lean();
-
-    if (!conversation) {
-      const err = new Error("Conversation not found");
-      err.statusCode = 404;
-      return next(err);
-    }
-
-    if (!conversation.participants.some((p) => String(p) === String(currentUserId))) {
-      const err = new Error("Forbidden");
-      err.statusCode = 403;
-      return next(err);
-    }
+    await getAuthorizedConversation({ conversationId, currentUserId });
+    const seenUpdatedCount = await markIncomingMessagesSeen({ conversationId, currentUserId });
 
     const messages = await Message.find({
       conversationId: new mongoose.Types.ObjectId(conversationId),
@@ -82,7 +132,11 @@ const getMessages = async (req, res, next) => {
       .select("conversationId senderId text messageType isSeen createdAt")
       .lean();
 
-    return res.status(200).json({ success: true, data: messages });
+    return res.status(200).json({
+      success: true,
+      data: messages,
+      seenUpdatedCount,
+    });
   } catch (error) {
     return next(error);
   }
@@ -114,6 +168,27 @@ const postSendMessage = async (req, res, next) => {
   }
 };
 
+const markMessagesSeen = async (req, res, next) => {
+  try {
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const { conversationId } = req.params;
+    const currentUserId = req.user._id;
+
+    await getAuthorizedConversation({ conversationId, currentUserId });
+    const seenUpdatedCount = await markIncomingMessagesSeen({ conversationId, currentUserId });
+
+    return res.status(200).json({
+      success: true,
+      seenUpdatedCount,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 const registerFcmToken = async (req, res, next) => {
   try {
     if (!req.user?._id) {
@@ -139,6 +214,7 @@ const registerFcmToken = async (req, res, next) => {
 module.exports = {
   getConversations,
   getMessages,
+  markMessagesSeen,
   postSendMessage,
   registerFcmToken,
 };
